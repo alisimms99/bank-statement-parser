@@ -1,0 +1,170 @@
+import { Button } from "@/components/ui/button";
+import FileUpload from "@/components/FileUpload";
+import TransactionTable from "@/components/TransactionTable";
+import { downloadCSV, extractTextFromPDF, parseStatementText, Transaction, transactionsToCSV } from "@/lib/pdfParser";
+import { Download, FileText, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+
+export default function Home() {
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processedFiles, setProcessedFiles] = useState<string[]>([]);
+
+  const handleFilesSelected = async (files: File[]) => {
+    setIsProcessing(true);
+    const allTransactions: Transaction[] = [];
+    const fileNames: string[] = [];
+
+    try {
+      for (const file of files) {
+        toast.info(`Processing ${file.name}...`);
+        
+        try {
+          const text = await extractTextFromPDF(file);
+          const parsedTransactions = parseStatementText(text);
+          
+          allTransactions.push(...parsedTransactions);
+          fileNames.push(file.name);
+          
+          toast.success(`Extracted ${parsedTransactions.length} transactions from ${file.name}`);
+        } catch (error) {
+          console.error(`Error processing ${file.name}:`, error);
+          toast.error(`Failed to process ${file.name}`);
+        }
+      }
+
+      setTransactions(allTransactions);
+      setProcessedFiles(fileNames);
+      
+      if (allTransactions.length > 0) {
+        toast.success(`Total: ${allTransactions.length} transactions from ${fileNames.length} file(s)`);
+      }
+    } catch (error) {
+      console.error('Error processing files:', error);
+      toast.error('An error occurred while processing files');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (transactions.length === 0) {
+      toast.error('No transactions to export');
+      return;
+    }
+
+    const csv = transactionsToCSV(transactions);
+    const timestamp = new Date().toISOString().split('T')[0];
+    downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
+    toast.success('CSV file downloaded successfully');
+  };
+
+  return (
+    <div className="min-h-screen relative overflow-hidden">
+      {/* Animated background gradient */}
+      <div className="fixed inset-0 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-900 dark:via-blue-900/20 dark:to-purple-900/20" />
+      
+      {/* Floating orbs for depth */}
+      <div className="fixed top-20 left-10 w-72 h-72 bg-blue-400/20 rounded-full blur-3xl animate-pulse" />
+      <div className="fixed bottom-20 right-10 w-96 h-96 bg-purple-400/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+      
+      <div className="relative z-10">
+        {/* Header */}
+        <header className="border-b border-border/50 backdrop-blur-md bg-background/30">
+          <div className="container mx-auto px-6 py-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <FileText className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-foreground">
+                  Bank Statement Parser
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  Extract transactions from PDF statements for QuickBooks reconciliation
+                </p>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Main content */}
+        <main className="container mx-auto px-6 py-12">
+          <div className="max-w-5xl mx-auto space-y-8">
+            {/* Upload section */}
+            <div className="space-y-4">
+              <FileUpload onFilesSelected={handleFilesSelected} />
+              
+              {isProcessing && (
+                <div className="flex items-center justify-center gap-3 py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                  <span className="text-sm text-muted-foreground font-medium">
+                    Processing PDF files...
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Results section */}
+            {transactions.length > 0 && !isProcessing && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                {/* Action bar */}
+                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-card/50 backdrop-blur-md">
+                  <div className="flex items-center gap-4">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-foreground">
+                        Files Processed
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {processedFiles.join(', ')}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <Button 
+                    onClick={handleExportCSV}
+                    className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export to CSV
+                  </Button>
+                </div>
+
+                {/* Transaction table */}
+                <TransactionTable transactions={transactions} />
+              </div>
+            )}
+
+            {/* Empty state */}
+            {transactions.length === 0 && !isProcessing && (
+              <div className="text-center py-16 space-y-4">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-muted/50">
+                  <FileText className="w-8 h-8 text-muted-foreground" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground mb-2">
+                    No statements uploaded yet
+                  </h3>
+                  <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                    Upload your bank statement PDFs to extract transaction data. 
+                    The app supports batch processing of multiple files.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </main>
+
+        {/* Footer */}
+        <footer className="border-t border-border/50 backdrop-blur-md bg-background/30 mt-20">
+          <div className="container mx-auto px-6 py-6">
+            <p className="text-center text-sm text-muted-foreground">
+              Supports Citizens Bank statement format. CSV output compatible with QuickBooks.
+            </p>
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+}
