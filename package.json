@@ -65,6 +65,7 @@
     "nanoid": "^5.1.5",
     "next-themes": "^0.4.6",
     "pdfjs-dist": "^5.4.449",
+    "multer": "^1.4.5-lts.1",
     "react": "^19.1.1",
     "react-day-picker": "^9.11.1",
     "react-dom": "^19.1.1",

@@ -1,3 +1,5 @@
+import fs from "fs";
+
 export const ENV = {
   appId: process.env.VITE_APP_ID ?? "",
   cookieSecret: process.env.JWT_SECRET ?? "",
@@ -14,3 +16,86 @@ export const ENV = {
   gcpOcrProcessorId: process.env.GCP_OCR_PROCESSOR_ID ?? "",
   gcpCredentialsJson: process.env.GCP_DOCUMENTAI_CREDENTIALS ?? "",
 };
+
+export type DocumentAiProcessorType = "bank" | "invoice" | "ocr" | "form";
+
+export interface DocumentAiConfig {
+  enabled: boolean;
+  ready: boolean;
+  projectId: string;
+  location: string;
+  processors: Partial<Record<DocumentAiProcessorType, string>>;
+  credentials?: Record<string, unknown>;
+  missing: string[];
+  reason?: string;
+}
+
+export function getDocumentAiConfig(): DocumentAiConfig {
+  const processors: Partial<Record<DocumentAiProcessorType, string>> = {
+    bank: ENV.docAiBankProcessorId || undefined,
+    invoice: ENV.docAiInvoiceProcessorId || undefined,
+    ocr: ENV.docAiOcrProcessorId || undefined,
+    form: ENV.docAiFormProcessorId || undefined,
+  };
+
+  const credentials = loadServiceAccount();
+  const missing: string[] = [];
+
+  if (!ENV.gcpProjectId) missing.push("GCP_PROJECT_ID");
+  if (!ENV.gcpLocation) missing.push("GCP_LOCATION");
+  if (!credentials) missing.push("GCP_SERVICE_ACCOUNT_JSON or GCP_SERVICE_ACCOUNT_PATH");
+  if (!processors.bank && !processors.invoice && !processors.ocr && !processors.form) {
+    missing.push("At least one DOC_AI_*_PROCESSOR_ID");
+  }
+
+  const ready = missing.length === 0;
+
+  return {
+    enabled: ENV.enableDocAi,
+    ready: ENV.enableDocAi && ready,
+    projectId: ENV.gcpProjectId,
+    location: ENV.gcpLocation,
+    processors,
+    credentials: credentials ?? undefined,
+    missing,
+    reason: !ENV.enableDocAi
+      ? "Document AI disabled"
+      : ready
+        ? undefined
+        : "Document AI enabled but not fully configured",
+  } satisfies DocumentAiConfig;
+}
+
+function loadServiceAccount(): Record<string, unknown> | null {
+  if (ENV.gcpServiceAccountJson) {
+    const parsed = tryParseJson(ENV.gcpServiceAccountJson);
+    if (parsed) return parsed;
+  }
+
+  if (ENV.gcpServiceAccountPath) {
+    try {
+      if (fs.existsSync(ENV.gcpServiceAccountPath)) {
+        const content = fs.readFileSync(ENV.gcpServiceAccountPath, "utf8");
+        const parsed = tryParseJson(content);
+        if (parsed) return parsed;
+      }
+    } catch (error) {
+      console.warn("Failed to read GCP service account file", error);
+    }
+  }
+
+  return null;
+}
+
+function tryParseJson(raw: string): Record<string, unknown> | null {
+  try {
+    const decoded = Buffer.from(raw, "base64").toString("utf8");
+    return JSON.parse(decoded);
+  } catch {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+}
