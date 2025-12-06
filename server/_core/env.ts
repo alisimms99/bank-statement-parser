@@ -9,15 +9,12 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
-  enableDocAi: (process.env.ENABLE_DOC_AI ?? "false").toLowerCase() === "true",
   gcpProjectId: process.env.GCP_PROJECT_ID ?? "",
   gcpLocation: process.env.GCP_LOCATION ?? "us", // Document AI default location
-  docAiBankProcessorId: process.env.DOC_AI_BANK_PROCESSOR_ID ?? "",
-  docAiInvoiceProcessorId: process.env.DOC_AI_INVOICE_PROCESSOR_ID ?? "",
-  docAiOcrProcessorId: process.env.DOC_AI_OCR_PROCESSOR_ID ?? "",
-  docAiFormProcessorId: process.env.DOC_AI_FORM_PROCESSOR_ID ?? "",
-  gcpServiceAccountJson: process.env.GCP_SERVICE_ACCOUNT_JSON ?? "",
-  gcpServiceAccountPath: process.env.GCP_SERVICE_ACCOUNT_PATH ?? "",
+  gcpBankProcessorId: process.env.GCP_BANK_PROCESSOR_ID ?? "",
+  gcpInvoiceProcessorId: process.env.GCP_INVOICE_PROCESSOR_ID ?? "",
+  gcpOcrProcessorId: process.env.GCP_OCR_PROCESSOR_ID ?? "",
+  gcpCredentialsJson: process.env.GCP_DOCUMENTAI_CREDENTIALS ?? "",
 };
 
 export type DocumentAiProcessorType = "bank" | "invoice" | "ocr" | "form";

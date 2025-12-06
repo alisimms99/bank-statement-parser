@@ -2,9 +2,7 @@ import type { CanonicalDocument } from "@shared/transactions";
 
 export interface IngestionResult {
   document: CanonicalDocument | null;
-  source: "documentai" | "legacy" | "unavailable" | "error";
-  fallback?: string | null;
-  errors?: string[];
+  source: "documentai" | "unavailable" | "error";
   error?: string;
 }
 
@@ -12,33 +10,37 @@ export async function ingestWithDocumentAI(
   file: File,
   documentType: CanonicalDocument["documentType"] = "bank_statement"
 ): Promise<IngestionResult> {
-  try {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("fileName", file.name);
-    formData.append("documentType", documentType);
+  const contentBase64 = await fileToBase64(file);
 
-    const response = await fetch("/api/ingest", { method: "POST", body: formData });
+  try {
+    const response = await fetch("/api/ingest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileName: file.name,
+        contentBase64,
+        documentType,
+      }),
+    });
 
     const payload = await response.json();
 
     if (response.ok && payload.document) {
-      return {
-        document: payload.document as CanonicalDocument,
-        source: payload.source ?? "documentai",
-        fallback: payload.fallback,
-        errors: payload.errors,
-      };
+      return { document: payload.document as CanonicalDocument, source: payload.source ?? "documentai" };
     }
 
-    return {
-      document: payload.document ?? null,
-      source: payload.source ?? "unavailable",
-      fallback: payload.fallback,
-      errors: payload.errors,
-      error: payload.error,
-    };
+    return { document: null, source: payload.source ?? "unavailable", error: payload.error };
   } catch (error: any) {
     return { document: null, source: "error", error: error?.message ?? "Unknown error" };
   }
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  bytes.forEach(b => {
+    binary += String.fromCharCode(b);
+  });
+  return btoa(binary);
 }

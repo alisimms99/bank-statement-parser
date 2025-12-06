@@ -2,7 +2,6 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import FileUpload from "@/components/FileUpload";
 import TransactionTable from "@/components/TransactionTable";
-import { StepFlow, type FileStatus } from "@/components/ingestion/StepFlow";
 import {
   canonicalToDisplayTransaction,
   downloadCSV,
@@ -24,17 +23,6 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedFiles, setProcessedFiles] = useState<string[]>([]);
   const [includeBom, setIncludeBom] = useState(true);
-  const [fileStatuses, setFileStatuses] = useState<Record<string, FileStatus>>({});
-
-  const setStatus = (
-    file: string,
-    phase: FileStatus["phase"],
-    message: string,
-    source: FileStatus["source"] = "documentai",
-    extras?: Partial<FileStatus>
-  ) => {
-    setFileStatuses(prev => ({ ...prev, [file]: { phase, message, source, ...extras } }));
-  };
 
   const handleFilesSelected = async (files: File[]) => {
     setIsProcessing(true);
@@ -51,39 +39,18 @@ export default function Home() {
           const result = await ingestWithDocumentAI(file, "bank_statement");
 
           if (result.document && result.document.transactions.length > 0) {
+            setStatus(file.name, "extraction", "Document AI extraction complete", "documentai");
             const canonical = result.document.transactions;
-            const source = result.source ?? "documentai";
-
-            setStatus(
-              file.name,
-              "extraction",
-              source === "legacy" ? "Legacy extraction complete" : "Document AI extraction complete",
-              source,
-              { fallback: result.fallback, errors: result.errors }
-            );
-
             allCanonical.push(...canonical);
             allTransactions.push(...canonical.map(canonicalToDisplayTransaction));
             fileNames.push(file.name);
-
-            setStatus(file.name, "normalization", "Normalized to canonical schema", source, {
-              fallback: result.fallback,
-              errors: result.errors,
-            });
-            setStatus(file.name, "export", "Ready for export", source, {
-              fallback: result.fallback,
-              errors: result.errors,
-            });
-            toast.success(
-              `${source === "legacy" ? "Legacy parser" : "Document AI"} extracted ${canonical.length} transactions from ${file.name}`
-            );
+            setStatus(file.name, "normalization", "Normalized to canonical schema", "documentai");
+            setStatus(file.name, "export", "Ready for export", "documentai");
+            toast.success(`Document AI extracted ${canonical.length} transactions from ${file.name}`);
             continue;
           }
 
-          setStatus(file.name, "extraction", "Document AI unavailable, using legacy parser", "legacy", {
-            fallback: result.fallback ?? result.source,
-            errors: result.errors,
-          });
+          setStatus(file.name, "extraction", "Document AI unavailable, using legacy parser", "legacy");
           const text = await extractTextFromPDF(file);
           const parsedTransactions = parseStatementText(text);
           const canonical = legacyTransactionsToCanonical(parsedTransactions);
@@ -123,8 +90,7 @@ export default function Home() {
       return;
     }
 
-    const exportSource = normalizedTransactions.length > 0 ? normalizedTransactions : legacyTransactionsToCanonical(transactions);
-    const csv = exportCanonicalToCSV(exportSource, { includeBom });
+    const csv = transactionsToCSV(transactions, { includeBom });
     const timestamp = new Date().toISOString().split('T')[0];
     downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
     toast.success('CSV file downloaded successfully');
@@ -166,7 +132,29 @@ export default function Home() {
             <div className="space-y-4">
               <FileUpload onFilesSelected={handleFilesSelected} />
 
-              {Object.keys(fileStatuses).length > 0 && <StepFlow statuses={fileStatuses} />}
+              {Object.keys(fileStatuses).length > 0 && (
+                <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-3">
+                  <div className="text-sm font-semibold text-foreground">Ingestion status</div>
+                  <div className="space-y-2 text-sm">
+                    {Object.entries(fileStatuses).map(([fileName, status]) => (
+                      <div
+                        key={fileName}
+                        className="flex flex-col gap-1 rounded-lg border border-border/50 bg-background/60 px-3 py-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-foreground">{fileName}</span>
+                          <span className="text-xs text-muted-foreground uppercase tracking-wide">
+                            {status.source === 'documentai' ? 'Document AI' : status.source === 'legacy' ? 'Legacy' : 'Error'}
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {status.phase} — {status.message}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {isProcessing && (
                 <div className="flex items-center justify-center gap-3 py-8">
