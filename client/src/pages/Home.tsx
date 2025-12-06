@@ -176,9 +176,59 @@ export default function Home() {
                   </span>
                 </div>
               )}
+
+              {(docAiFiles > 0 || legacyFiles > 0) && (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-border/60 bg-card/60 p-3 text-sm">
+                    <div className="text-xs text-muted-foreground">Document AI path</div>
+                    <div className="text-lg font-semibold text-foreground">{docAiFiles} file(s)</div>
+                    <p className="text-xs text-muted-foreground">Requires ENABLE_DOC_AI and valid credentials.</p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-card/60 p-3 text-sm">
+                    <div className="text-xs text-muted-foreground">Legacy fallback</div>
+                    <div className="text-lg font-semibold text-foreground">{legacyFiles} file(s)</div>
+                    <p className="text-xs text-muted-foreground">Used when Document AI is unavailable or errors.</p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-card/60 p-3 text-sm">
+                    <div className="text-xs text-muted-foreground">Normalization ready</div>
+                    <div className="text-lg font-semibold text-foreground">{exportReadyCount} transaction(s)</div>
+                    <p className="text-xs text-muted-foreground">Ready to export to CSV once processing finishes.</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Results section */}
+            {showDebug && (
+              <div className="rounded-xl border border-dashed border-border/70 bg-card/50 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">Developer debug view</div>
+                    <p className="text-xs text-muted-foreground">
+                      Raw normalized transactions and ingestion metadata for troubleshooting.
+                    </p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setShowDebug(false)}>
+                    Hide debug
+                  </Button>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="rounded-lg border border-border/60 bg-background/70 p-3">
+                    <div className="text-xs font-medium text-muted-foreground mb-2">Normalized transactions</div>
+                    <pre className="text-[11px] whitespace-pre-wrap break-words max-h-64 overflow-auto">
+                      {JSON.stringify(normalizedTransactions, null, 2)}
+                    </pre>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-background/70 p-3">
+                    <div className="text-xs font-medium text-muted-foreground mb-2">Ingestion statuses</div>
+                    <pre className="text-[11px] whitespace-pre-wrap break-words max-h-64 overflow-auto">
+                      {JSON.stringify(fileStatuses, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {transactions.length > 0 && !isProcessing && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 {/* Action bar */}
