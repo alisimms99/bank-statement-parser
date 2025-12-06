@@ -10,18 +10,11 @@ export interface FileStatus {
   source: "documentai" | "legacy" | "error";
   fallback?: string | null;
   errors?: string[];
-  retryable?: boolean;
 }
 
 const phaseOrder: IngestionPhase[] = ["upload", "extraction", "normalization", "export"];
 
-export function StepFlow({
-  statuses,
-  onRetry,
-}: {
-  statuses: Record<string, FileStatus>;
-  onRetry?: (fileName: string) => void;
-}) {
+export function StepFlow({ statuses }: { statuses: Record<string, FileStatus> }) {
   return (
     <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-3">
       <div className="text-sm font-semibold text-foreground">Ingestion status</div>
@@ -34,16 +27,13 @@ export function StepFlow({
             <div className="flex items-center justify-between gap-2">
               <div className="flex flex-col">
                 <span className="font-medium text-foreground">{fileName}</span>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 capitalize">
-                    {status.source === "documentai" ? "Document AI" : status.source === "legacy" ? "Legacy parser" : "Error"}
-                  </span>
-                  {status.fallback && (
-                    <Badge variant="outline" className="h-6 text-[11px]">
-                      Fallback: {status.fallback}
-                    </Badge>
-                  )}
-                </div>
+                <span className="text-xs text-muted-foreground">
+                  {status.source === "documentai"
+                    ? "Document AI"
+                    : status.source === "legacy"
+                      ? "Legacy parser"
+                      : "Error"}
+                </span>
               </div>
               <Badge variant={status.source === "legacy" ? "secondary" : "default"} className="capitalize">
                 {status.phase === "error" ? "Error" : status.phase}
@@ -73,17 +63,6 @@ export function StepFlow({
                   <li key={err}>{err}</li>
                 ))}
               </ul>
-            )}
-            {status.phase === "error" && onRetry && status.retryable !== false && (
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  className="text-xs font-medium text-primary hover:underline"
-                  onClick={() => onRetry(fileName)}
-                >
-                  Retry ingestion
-                </button>
-              </div>
             )}
           </div>
         ))}
