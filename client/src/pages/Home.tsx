@@ -14,7 +14,7 @@ import { ingestWithDocumentAI } from "@/lib/ingestionClient";
 import type { CanonicalTransaction } from "@shared/transactions";
 import { exportCanonicalToCSV } from "@shared/export/csv";
 import { Download, FileText, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 export default function Home() {
@@ -31,6 +31,7 @@ export default function Home() {
     const fileNames: string[] = [];
 
     try {
+      let processedCount = 0;
       for (const file of files) {
         toast.info(`Processing ${file.name}...`);
         setStatus(file.name, "upload", "File received", "documentai");
@@ -77,11 +78,22 @@ export default function Home() {
         toast.success(`Total: ${allTransactions.length} transactions from ${fileNames.length} file(s)`);
       }
     } catch (error) {
-      console.error('Error processing files:', error);
-      toast.error('An error occurred while processing files');
+      console.error("Error processing files:", error);
+      toast.error("An error occurred while processing files");
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleRetry = async (fileName: string) => {
+    const cached = fileCache.current.get(fileName);
+    if (!cached) {
+      toast.error("Original file is not available to retry. Please re-upload.");
+      return;
+    }
+    setIsProcessing(true);
+    await processFile(cached);
+    setIsProcessing(false);
   };
 
   const handleExportCSV = () => {
