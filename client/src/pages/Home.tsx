@@ -1,51 +1,180 @@
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import FileUpload from "@/components/FileUpload";
 import TransactionTable from "@/components/TransactionTable";
-import { downloadCSV, extractTextFromPDF, parseStatementText, Transaction, transactionsToCSV } from "@/lib/pdfParser";
+import { StepFlow, type FileStatus } from "@/components/ingestion/StepFlow";
+import {
+  canonicalToDisplayTransaction,
+  downloadCSV,
+  extractTextFromPDF,
+  legacyTransactionsToCanonical,
+  parseStatementText,
+  Transaction
+} from "@/lib/pdfParser";
+import { ingestWithDocumentAI } from "@/lib/ingestionClient";
+import type { CanonicalTransaction } from "@shared/transactions";
+import { exportCanonicalToCSV } from "@shared/export/csv";
 import { Download, FileText, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [normalizedTransactions, setNormalizedTransactions] = useState<CanonicalTransaction[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedFiles, setProcessedFiles] = useState<string[]>([]);
+  const [includeBom, setIncludeBom] = useState(true);
+  const [fileStatuses, setFileStatuses] = useState<Record<string, FileStatus>>({});
+  const [showDebug, setShowDebug] = useState(import.meta.env.VITE_INGESTION_DEBUG === "true");
+  const fileCache = useRef<Map<string, File>>(new Map());
+
+  const docAiFiles = Object.values(fileStatuses).filter(status => status.source === "documentai").length;
+  const legacyFiles = Object.values(fileStatuses).filter(status => status.source === "legacy").length;
+  const exportReadyCount = normalizedTransactions.length;
+
+  const setStatus = (
+    file: string,
+    phase: FileStatus["phase"],
+    message: string,
+    source: FileStatus["source"] = "documentai",
+    extras?: Partial<FileStatus>
+  ) => {
+    setFileStatuses(prev => ({ ...prev, [file]: { phase, message, source, ...extras } }));
+  };
+
+  const runLegacyFallback = async (
+    file: File,
+    reason?: string | null,
+    errors?: string[],
+    meta?: Record<string, any>
+  ) => {
+    try {
+      setStatus(
+        file.name,
+        "extraction",
+        reason ? `Using legacy parser (fallback: ${reason})` : "Using legacy parser",
+        "legacy",
+        { fallback: reason, errors, retryable: true, meta }
+      );
+
+      const text = await extractTextFromPDF(file);
+      const parsedTransactions = parseStatementText(text);
+      const canonical = legacyTransactionsToCanonical(parsedTransactions);
+
+      setTransactions(prev => [...prev, ...canonical.map(canonicalToDisplayTransaction)]);
+      setNormalizedTransactions(prev => [...prev, ...canonical]);
+      setProcessedFiles(prev => Array.from(new Set([...prev, file.name])));
+
+      setStatus(file.name, "normalization", "Legacy normalization complete", "legacy", { retryable: true, meta });
+      setStatus(file.name, "export", `Ready for export (${canonical.length} tx)`, "legacy", {
+        retryable: true,
+        meta,
+      });
+      toast.success(
+        `Legacy parser extracted ${canonical.length} transaction${canonical.length === 1 ? "" : "s"} from ${file.name}`
+      );
+      return canonical.length;
+    } catch (legacyError) {
+      console.error(`Legacy fallback failed for ${file.name}`, legacyError);
+      setStatus(file.name, "error", "Failed to process file with legacy parser", "error", {
+        retryable: true,
+        errors,
+        fallback: reason,
+        meta,
+      });
+      toast.error(`Failed to process ${file.name}`);
+      return 0;
+    }
+  };
+
+  const processFile = async (file: File) => {
+    fileCache.current.set(file.name, file);
+    toast.info(`Processing ${file.name}...`);
+    setStatus(file.name, "upload", "File received", "documentai", { retryable: true });
+    setStatus(file.name, "extraction", "Sending to Document AI...", "documentai", { retryable: true });
+
+    try {
+      const result = await ingestWithDocumentAI(file, "bank_statement");
+      const fallbackReason = result.fallback ?? result.error;
+      const durationMs = result.meta?.elapsedMs ?? result.meta?.durationMs;
+
+      if (result.document && result.document.transactions.length > 0) {
+        const canonical = result.document.transactions;
+        const source = result.source ?? "documentai";
+
+        setStatus(
+          file.name,
+          "extraction",
+          source === "legacy" ? "Legacy extraction complete" : "Document AI extraction complete",
+          source,
+          { fallback: result.fallback, errors: result.errors, retryable: true, durationMs, meta: result.meta }
+        );
+
+        setNormalizedTransactions(prev => [...prev, ...canonical]);
+        setTransactions(prev => [...prev, ...canonical.map(canonicalToDisplayTransaction)]);
+        setProcessedFiles(prev => Array.from(new Set([...prev, file.name])));
+
+        setStatus(file.name, "normalization", "Normalized to canonical schema", source, {
+          fallback: result.fallback,
+          errors: result.errors,
+          retryable: true,
+          durationMs,
+          meta: result.meta,
+        });
+        setStatus(file.name, "export", `Ready for export (${canonical.length} tx)`, source, {
+          fallback: result.fallback,
+          errors: result.errors,
+          retryable: true,
+          durationMs,
+          meta: result.meta,
+        });
+        toast.success(
+          `${source === "legacy" ? "Legacy parser" : "Document AI"} extracted ${canonical.length} transactions from ${file.name}`
+        );
+        return canonical.length;
+      }
+
+      // Document AI disabled, misconfigured, or returned an empty payload
+      return await runLegacyFallback(file, fallbackReason ?? result.source, result.errors, result.meta);
+    } catch (error) {
+      console.error(`Error processing ${file.name}:`, error);
+      return await runLegacyFallback(file, "docai_error");
+    }
+  };
 
   const handleFilesSelected = async (files: File[]) => {
     setIsProcessing(true);
-    const allTransactions: Transaction[] = [];
-    const fileNames: string[] = [];
+    setTransactions([]);
+    setNormalizedTransactions([]);
+    setProcessedFiles([]);
+    setFileStatuses({});
 
     try {
+      let processedCount = 0;
       for (const file of files) {
-        toast.info(`Processing ${file.name}...`);
-        
-        try {
-          const text = await extractTextFromPDF(file);
-          const parsedTransactions = parseStatementText(text);
-          
-          allTransactions.push(...parsedTransactions);
-          fileNames.push(file.name);
-          
-          toast.success(`Extracted ${parsedTransactions.length} transactions from ${file.name}`);
-        } catch (error) {
-          console.error(`Error processing ${file.name}:`, error);
-          toast.error(`Failed to process ${file.name}`);
-        }
+        processedCount += await processFile(file);
       }
 
-      setTransactions(allTransactions);
-      setProcessedFiles(fileNames);
-      
-      if (allTransactions.length > 0) {
-        toast.success(`Total: ${allTransactions.length} transactions from ${fileNames.length} file(s)`);
+      if (processedCount > 0) {
+        toast.success(`Total: ${processedCount} transactions from ${files.length} file(s)`);
       }
     } catch (error) {
-      console.error('Error processing files:', error);
-      toast.error('An error occurred while processing files');
+      console.error("Error processing files:", error);
+      toast.error("An error occurred while processing files");
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleRetry = async (fileName: string) => {
+    const cached = fileCache.current.get(fileName);
+    if (!cached) {
+      toast.error("Original file is not available to retry. Please re-upload.");
+      return;
+    }
+    setIsProcessing(true);
+    await processFile(cached);
+    setIsProcessing(false);
   };
 
   const handleExportCSV = () => {
@@ -54,7 +183,8 @@ export default function Home() {
       return;
     }
 
-    const csv = transactionsToCSV(transactions);
+    const exportSource = normalizedTransactions.length > 0 ? normalizedTransactions : legacyTransactionsToCanonical(transactions);
+    const csv = exportCanonicalToCSV(exportSource, { includeBom });
     const timestamp = new Date().toISOString().split('T')[0];
     downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
     toast.success('CSV file downloaded successfully');
@@ -95,7 +225,9 @@ export default function Home() {
             {/* Upload section */}
             <div className="space-y-4">
               <FileUpload onFilesSelected={handleFilesSelected} />
-              
+
+              {Object.keys(fileStatuses).length > 0 && <StepFlow statuses={fileStatuses} onRetry={handleRetry} />}
+
               {isProcessing && (
                 <div className="flex items-center justify-center gap-3 py-8">
                   <Loader2 className="w-6 h-6 animate-spin text-primary" />
@@ -104,14 +236,64 @@ export default function Home() {
                   </span>
                 </div>
               )}
+
+              {(docAiFiles > 0 || legacyFiles > 0) && (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-border/60 bg-card/60 p-3 text-sm">
+                    <div className="text-xs text-muted-foreground">Document AI path</div>
+                    <div className="text-lg font-semibold text-foreground">{docAiFiles} file(s)</div>
+                    <p className="text-xs text-muted-foreground">Requires ENABLE_DOC_AI and valid credentials.</p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-card/60 p-3 text-sm">
+                    <div className="text-xs text-muted-foreground">Legacy fallback</div>
+                    <div className="text-lg font-semibold text-foreground">{legacyFiles} file(s)</div>
+                    <p className="text-xs text-muted-foreground">Used when Document AI is unavailable or errors.</p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-card/60 p-3 text-sm">
+                    <div className="text-xs text-muted-foreground">Normalization ready</div>
+                    <div className="text-lg font-semibold text-foreground">{exportReadyCount} transaction(s)</div>
+                    <p className="text-xs text-muted-foreground">Ready to export to CSV once processing finishes.</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Results section */}
+            {showDebug && (
+              <div className="rounded-xl border border-dashed border-border/70 bg-card/50 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">Developer debug view</div>
+                    <p className="text-xs text-muted-foreground">
+                      Raw normalized transactions and ingestion metadata for troubleshooting.
+                    </p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setShowDebug(false)}>
+                    Hide debug
+                  </Button>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="rounded-lg border border-border/60 bg-background/70 p-3">
+                    <div className="text-xs font-medium text-muted-foreground mb-2">Normalized transactions</div>
+                    <pre className="text-[11px] whitespace-pre-wrap break-words max-h-64 overflow-auto">
+                      {JSON.stringify(normalizedTransactions, null, 2)}
+                    </pre>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-background/70 p-3">
+                    <div className="text-xs font-medium text-muted-foreground mb-2">Ingestion statuses</div>
+                    <pre className="text-[11px] whitespace-pre-wrap break-words max-h-64 overflow-auto">
+                      {JSON.stringify(fileStatuses, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {transactions.length > 0 && !isProcessing && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 {/* Action bar */}
-                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-card/50 backdrop-blur-md">
-                  <div className="flex items-center gap-4">
+                <div className="flex flex-col gap-3 p-4 rounded-xl border border-border bg-card/50 backdrop-blur-md">
+                  <div className="flex items-center justify-between gap-4">
                     <div className="flex flex-col">
                       <span className="text-sm font-medium text-foreground">
                         Files Processed
@@ -120,15 +302,33 @@ export default function Home() {
                         {processedFiles.join(', ')}
                       </span>
                     </div>
+
+                    <Button
+                      onClick={handleExportCSV}
+                      className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
+                    >
+                      <Download className="w-4 h-4" />
+                      Export to CSV
+                    </Button>
                   </div>
-                  
-                  <Button 
-                    onClick={handleExportCSV}
-                    className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
-                  >
-                    <Download className="w-4 h-4" />
-                    Export to CSV
-                  </Button>
+
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-border/60 px-3 py-2">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium text-foreground">UTF-8 BOM for Excel</span>
+                      <span className="text-xs text-muted-foreground">Enable for QuickBooks/Excel imports that expect a BOM marker.</span>
+                    </div>
+                    <Switch
+                      id="include-bom"
+                      checked={includeBom}
+                      onCheckedChange={setIncludeBom}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Switch id="show-debug" checked={showDebug} onCheckedChange={setShowDebug} />
+                    <label htmlFor="show-debug" className="cursor-pointer">
+                      Developer debug panel (raw normalized output)
+                    </label>
+                  </div>
                 </div>
 
                 {/* Transaction table */}
