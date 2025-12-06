@@ -2,13 +2,24 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import FileUpload from "@/components/FileUpload";
 import TransactionTable from "@/components/TransactionTable";
-import { downloadCSV, extractTextFromPDF, parseStatementText, Transaction, transactionsToCSV } from "@/lib/pdfParser";
+import {
+  canonicalToDisplayTransaction,
+  downloadCSV,
+  extractTextFromPDF,
+  legacyTransactionsToCanonical,
+  parseStatementText,
+  Transaction
+} from "@/lib/pdfParser";
+import { ingestWithDocumentAI } from "@/lib/ingestionClient";
+import type { CanonicalTransaction } from "@shared/transactions";
+import { exportCanonicalToCSV } from "@shared/export/csv";
 import { Download, FileText, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [normalizedTransactions, setNormalizedTransactions] = useState<CanonicalTransaction[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedFiles, setProcessedFiles] = useState<string[]>([]);
   const [includeBom, setIncludeBom] = useState(true);
@@ -16,27 +27,50 @@ export default function Home() {
   const handleFilesSelected = async (files: File[]) => {
     setIsProcessing(true);
     const allTransactions: Transaction[] = [];
+    const allCanonical: CanonicalTransaction[] = [];
     const fileNames: string[] = [];
 
     try {
       for (const file of files) {
         toast.info(`Processing ${file.name}...`);
-        
+        setStatus(file.name, "upload", "File received", "documentai");
+
         try {
+          const result = await ingestWithDocumentAI(file, "bank_statement");
+
+          if (result.document && result.document.transactions.length > 0) {
+            setStatus(file.name, "extraction", "Document AI extraction complete", "documentai");
+            const canonical = result.document.transactions;
+            allCanonical.push(...canonical);
+            allTransactions.push(...canonical.map(canonicalToDisplayTransaction));
+            fileNames.push(file.name);
+            setStatus(file.name, "normalization", "Normalized to canonical schema", "documentai");
+            setStatus(file.name, "export", "Ready for export", "documentai");
+            toast.success(`Document AI extracted ${canonical.length} transactions from ${file.name}`);
+            continue;
+          }
+
+          setStatus(file.name, "extraction", "Document AI unavailable, using legacy parser", "legacy");
           const text = await extractTextFromPDF(file);
           const parsedTransactions = parseStatementText(text);
-          
-          allTransactions.push(...parsedTransactions);
+          const canonical = legacyTransactionsToCanonical(parsedTransactions);
+
+          allTransactions.push(...canonical.map(canonicalToDisplayTransaction));
+          allCanonical.push(...canonical);
           fileNames.push(file.name);
-          
+
+          setStatus(file.name, "normalization", "Legacy normalization complete", "legacy");
+          setStatus(file.name, "export", "Ready for export", "legacy");
           toast.success(`Extracted ${parsedTransactions.length} transactions from ${file.name}`);
         } catch (error) {
           console.error(`Error processing ${file.name}:`, error);
           toast.error(`Failed to process ${file.name}`);
+          setStatus(file.name, "error", "Failed to process file", "error");
         }
       }
 
       setTransactions(allTransactions);
+      setNormalizedTransactions(allCanonical);
       setProcessedFiles(fileNames);
       
       if (allTransactions.length > 0) {
@@ -97,7 +131,31 @@ export default function Home() {
             {/* Upload section */}
             <div className="space-y-4">
               <FileUpload onFilesSelected={handleFilesSelected} />
-              
+
+              {Object.keys(fileStatuses).length > 0 && (
+                <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-3">
+                  <div className="text-sm font-semibold text-foreground">Ingestion status</div>
+                  <div className="space-y-2 text-sm">
+                    {Object.entries(fileStatuses).map(([fileName, status]) => (
+                      <div
+                        key={fileName}
+                        className="flex flex-col gap-1 rounded-lg border border-border/50 bg-background/60 px-3 py-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-foreground">{fileName}</span>
+                          <span className="text-xs text-muted-foreground uppercase tracking-wide">
+                            {status.source === 'documentai' ? 'Document AI' : status.source === 'legacy' ? 'Legacy' : 'Error'}
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {status.phase} — {status.message}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {isProcessing && (
                 <div className="flex items-center justify-center gap-3 py-8">
                   <Loader2 className="w-6 h-6 animate-spin text-primary" />

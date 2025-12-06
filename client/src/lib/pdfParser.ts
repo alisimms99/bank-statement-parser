@@ -1,4 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
+import { normalizeLegacyTransactions } from '@shared/normalization';
+import { CanonicalTransaction } from '@shared/transactions';
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(

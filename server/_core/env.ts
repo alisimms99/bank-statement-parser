@@ -7,4 +7,10 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  gcpProjectId: process.env.GCP_PROJECT_ID ?? "",
+  gcpLocation: process.env.GCP_LOCATION ?? "us", // Document AI default location
+  gcpBankProcessorId: process.env.GCP_BANK_PROCESSOR_ID ?? "",
+  gcpInvoiceProcessorId: process.env.GCP_INVOICE_PROCESSOR_ID ?? "",
+  gcpOcrProcessorId: process.env.GCP_OCR_PROCESSOR_ID ?? "",
+  gcpCredentialsJson: process.env.GCP_DOCUMENTAI_CREDENTIALS ?? "",
 };
