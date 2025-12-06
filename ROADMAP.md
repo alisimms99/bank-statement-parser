@@ -1,36 +1,28 @@
 # Development Roadmap
 
-## Current Assessment (Universal Ingestion)
-- The existing pipeline is optimized for Citizens Bank PDFs and runs entirely in the client.
-- There is no support for Google Cloud Document AI, invoice parsing, or OCR fallbacks.
-- CSV export exists but assumes legacy string amounts instead of normalized values.
-- Environment/config management for processor IDs and credentials is absent.
-- Batch UX and deployment workflows remain minimal.
-
-## Target Architecture
-- **Document AI–first ingestion**: Server-side Document AI processors for bank statements, invoices, and OCR fallback; client falls back to legacy parsing when processors are unavailable.
-- **Canonical normalization layer**: Shared schemas and mappers to normalize amounts, directions, dates, and parties across banks/cards before export.
-- **Pluggable exporters**: CSV/QuickBooks exports that operate on normalized records with BOM toggle and spreadsheet-safe formatting.
-- **Configurable environment**: Processor IDs, project/location, and credentials provided via env vars with safe defaults and validation.
-- **Observability & UX**: Per-file status, clear loading/error states, and structured logs for ingestion failures.
+## Current Assessment
+- PDF upload, parsing, and CSV export are wired up end-to-end, but parsing logic is tailored to a single Citizens Bank layout.
+- UI provides the core flow (upload → parse → table → CSV), with minimal error/loading feedback beyond toast notifications.
+- Batch mode processes multiple files sequentially without shared normalization or per-file error surfacing.
+- Deployment, environment configuration, and developer onboarding documentation are missing.
 
 ## Prioritized Milestones
-1. **Document AI integration**
-   - Add server-side connectors for bank statement, invoice, and OCR processors.
-   - Provide env-driven configuration and graceful fallback when credentials are missing.
-2. **Canonical normalization**
-   - Define shared transaction/document schemas and normalize outputs from Document AI and legacy parsers.
-   - Extend CSV exporter to operate on normalized data for QuickBooks.
-3. **Pipeline routing & UI**
-   - Route ingestion through Document AI first, with Citizens/legacy parsing as a secondary path.
-   - Surface per-file status, batch progress, and retriable errors in the UI.
-4. **Testing matrix**
-   - Add fixtures for multiple banks/cards and verify normalization + CSV output across cases.
-   - Add smoke tests for BOM inclusion and schema validation.
+1. **Parsing robustness**
+   - Add bank-aware parsing strategies and shared normalization rules (date formats, amount signs, payee cleanup).
+   - Guard against malformed PDFs and partial parses with clear UI + log messages.
+2. **CSV export validation**
+   - Conform CSV output to QuickBooks/Sheets requirements (plain numeric amounts, proper quoting, UTF-8 BOM optional toggle).
+   - Add automated tests for CSV formatting and escaping.
+3. **Batch processing & UX polish**
+   - Surface per-file success/failure, with retry/remove controls.
+   - Provide inline loaders/placeholders in the table and disable actions during work.
+4. **Server/trpc hardening**
+   - Finish TRPC endpoints for server-side parsing when client JS/worker fails.
+   - Add schema validation (zod) and input size limits.
 5. **Deployment & CI**
-   - Add Vercel/Fly workflow, env templates, and CI checks for lint/test/build.
-6. **Documentation & onboarding**
-   - Update README with Document AI setup, env var examples, and QuickBooks export guidance.
+   - Add Vercel/Fly workflow, env var templates, and basic smoke tests (pnpm test/check).
+6. **Documentation**
+   - Expand README with setup, development commands, and bank-format notes.
 
 ## First Task (Completed in this iteration)
 - Normalize CSV amounts for QuickBooks compatibility (numeric values, correct debit/credit signs) and add unit coverage for escaping and formatting.

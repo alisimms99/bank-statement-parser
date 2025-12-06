@@ -15,6 +15,10 @@ export interface Transaction {
   amount: string;
 }
 
+export interface CsvExportOptions {
+  includeBom?: boolean;
+}
+
 interface ParsedTransaction {
   date: string;
   amount: number;
@@ -281,34 +285,49 @@ function parseSingleColumnTransaction(
 /**
  * Convert transactions to CSV format
  */
-function formatDisplayDate(isoDate: string): string {
-  if (!isoDate) return '';
-  const [year, month, day] = isoDate.split('-');
-  return `${month}/${day}/${year}`;
+export function transactionsToCSV(
+  transactions: Transaction[],
+  options: CsvExportOptions = {}
+): string {
+  const { includeBom = false } = options;
+  const headers = ['Date', 'Transaction Type', 'Payee / Payor', 'Amount'];
+  const rows = transactions.map(t => [
+    t.date,
+    t.type,
+    t.payee,
+    normalizeAmountForCSV(t.amount)
+  ]);
+
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => {
+      if (cell == null) return '';
+      // Escape cells containing commas or quotes
+      if (cell.includes(',') || cell.includes('"') || cell.includes('\n')) {
+        return `"${cell.replace(/"/g, '""')}"`;
+      }
+      return cell;
+    }).join(','))
+  ].join('\n');
+
+  return includeBom ? `\uFEFF${csvContent}` : csvContent;
 }
 
-export function legacyTransactionsToCanonical(transactions: Transaction[]): CanonicalTransaction[] {
-  return normalizeLegacyTransactions(
-    transactions.map(tx => ({
-      date: tx.date,
-      description: tx.type || tx.payee,
-      amount: tx.amount,
-      type: tx.type,
-      payee: tx.payee,
-      directionHint: tx.amount.startsWith('-') ? 'debit' : 'credit'
-    }))
-  );
-}
+/**
+ * Normalize amount string for CSV/QuickBooks import
+ * - Removes currency symbols and commas
+ * - Ensures two decimal places
+ */
+function normalizeAmountForCSV(amount: string): string {
+  // Keep digits, decimal point, and sign
+  const sanitized = amount.replace(/[^0-9.-]/g, '');
+  const parsed = parseFloat(sanitized);
 
-export function canonicalToDisplayTransaction(tx: CanonicalTransaction): Transaction {
-  const amountValue = tx.debit > 0 ? tx.debit : tx.credit;
-  const amount = `$${amountValue.toFixed(2)}`;
-  return {
-    date: formatDisplayDate(tx.posted_date ?? tx.date ?? ''),
-    type: tx.credit > 0 ? 'Credit' : 'Debit',
-    payee: tx.payee || tx.description,
-    amount: tx.debit > 0 ? `-${amount}` : amount
-  };
+  if (Number.isNaN(parsed)) {
+    return '';
+  }
+
+  return parsed.toFixed(2);
 }
 
 /**

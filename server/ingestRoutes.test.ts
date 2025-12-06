@@ -77,7 +77,7 @@ describe("registerIngestionRoutes", () => {
   });
 
   it("returns Document AI results when enabled and successful", async () => {
-    processMock.mockResolvedValue({ document: sampleDocument, meta: { processorType: "bank", mode: "online" } });
+    processMock.mockResolvedValue(sampleDocument);
 
     const app = express();
     app.use(express.json());
@@ -95,7 +95,7 @@ describe("registerIngestionRoutes", () => {
   });
 
   it("falls back to legacy when Document AI fails", async () => {
-    processMock.mockResolvedValue({ document: null, meta: { processorType: "bank", mode: "online" } });
+    processMock.mockResolvedValue(null);
 
     const app = express();
     app.use(express.json());
@@ -122,7 +122,7 @@ describe("registerIngestionRoutes", () => {
       processors: {},
       missing: ["enable"],
     });
-    processMock.mockResolvedValue({ document: null, meta: { processorType: "bank", mode: "online", fallbackReason: "disabled" } });
+    processMock.mockResolvedValue(null);
 
     const app = express();
     app.use(express.json());
