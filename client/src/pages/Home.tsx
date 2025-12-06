@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import FileUpload from "@/components/FileUpload";
 import TransactionTable from "@/components/TransactionTable";
 import { downloadCSV, extractTextFromPDF, parseStatementText, Transaction, transactionsToCSV } from "@/lib/pdfParser";
@@ -10,6 +11,7 @@ export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedFiles, setProcessedFiles] = useState<string[]>([]);
+  const [includeBom, setIncludeBom] = useState(true);
 
   const handleFilesSelected = async (files: File[]) => {
     setIsProcessing(true);
@@ -54,7 +56,7 @@ export default function Home() {
       return;
     }
 
-    const csv = transactionsToCSV(transactions);
+    const csv = transactionsToCSV(transactions, { includeBom });
     const timestamp = new Date().toISOString().split('T')[0];
     downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
     toast.success('CSV file downloaded successfully');
@@ -110,8 +112,8 @@ export default function Home() {
             {transactions.length > 0 && !isProcessing && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 {/* Action bar */}
-                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-card/50 backdrop-blur-md">
-                  <div className="flex items-center gap-4">
+                <div className="flex flex-col gap-3 p-4 rounded-xl border border-border bg-card/50 backdrop-blur-md">
+                  <div className="flex items-center justify-between gap-4">
                     <div className="flex flex-col">
                       <span className="text-sm font-medium text-foreground">
                         Files Processed
@@ -120,15 +122,27 @@ export default function Home() {
                         {processedFiles.join(', ')}
                       </span>
                     </div>
+
+                    <Button
+                      onClick={handleExportCSV}
+                      className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
+                    >
+                      <Download className="w-4 h-4" />
+                      Export to CSV
+                    </Button>
                   </div>
-                  
-                  <Button 
-                    onClick={handleExportCSV}
-                    className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
-                  >
-                    <Download className="w-4 h-4" />
-                    Export to CSV
-                  </Button>
+
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-border/60 px-3 py-2">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium text-foreground">UTF-8 BOM for Excel</span>
+                      <span className="text-xs text-muted-foreground">Enable for QuickBooks/Excel imports that expect a BOM marker.</span>
+                    </div>
+                    <Switch
+                      id="include-bom"
+                      checked={includeBom}
+                      onCheckedChange={setIncludeBom}
+                    />
+                  </div>
                 </div>
 
                 {/* Transaction table */}
