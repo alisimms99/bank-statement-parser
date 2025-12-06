@@ -1,11 +1,59 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  canonicalToDisplayTransaction,
-  legacyTransactionsToCanonical,
-  parseStatementText
-} from './pdfParser';
-import { exportCanonicalToCSV } from '@shared/export/csv';
+import { parseStatementText, transactionsToCSV } from './pdfParser';
+
+describe('transactionsToCSV', () => {
+  it('formats debit and credit amounts as plain numbers', () => {
+    const csv = transactionsToCSV([
+      {
+        date: '01/05/2024',
+        type: 'Debit Card Purchase',
+        payee: 'Coffee Shop',
+        amount: '-$12.34'
+      },
+      {
+        date: '01/06/2024',
+        type: 'ACH Credit',
+        payee: 'PAYROLL INC',
+        amount: '$2,500.00'
+      }
+    ]);
+
+    const [, debitLine, creditLine] = csv.split('\n');
+    expect(debitLine.split(',').at(-1)).toBe('-12.34');
+    expect(creditLine.split(',').at(-1)).toBe('2500.00');
+  });
+
+  it('escapes commas and quotes in payee names', () => {
+    const csv = transactionsToCSV([
+      {
+        date: '02/01/2024',
+        type: 'Deposit',
+        payee: 'ACME, "International"',
+        amount: '$100.00'
+      }
+    ]);
+
+    const [, line] = csv.split('\n');
+    // Payee cell should be quoted and contain doubled quotes
+    expect(line).toContain('"ACME, ""International"""');
+  });
+
+  it('optionally prefixes a UTF-8 BOM for Excel/QuickBooks', () => {
+    const csv = transactionsToCSV([
+      {
+        date: '03/10/2024',
+        type: 'ACH Credit',
+        payee: 'PAYROLL INC',
+        amount: '$500.00'
+      }
+    ], { includeBom: true });
+
+    expect(csv.startsWith('\uFEFF')).toBe(true);
+    const [, dataLine] = csv.replace('\uFEFF', '').split('\n');
+    expect(dataLine.endsWith('500.00')).toBe(true);
+  });
+});
 
 describe('parseStatementText', () => {
   it('parses debit and credit sections with cleaned payees', () => {
@@ -63,77 +111,3 @@ Date Description Debit Credit
   });
 });
 
-describe('canonical helpers', () => {
-  it('normalizes legacy parsed output into canonical records with positive debit/credit', () => {
-    const legacy = [
-      { date: '03/05/2024', type: 'ACH Credit', payee: 'ACME CORP', amount: '$500.00' },
-      { date: '03/06/2024', type: 'Debit Card', payee: 'Store', amount: '-$25.00' }
-    ];
-
-    const canonicalized = legacyTransactionsToCanonical(legacy as any);
-    expect(canonicalized).toEqual([
-      expect.objectContaining({ credit: 500, debit: 0, payee: 'ACME CORP' }),
-      expect.objectContaining({ debit: 25, credit: 0, payee: 'Store' })
-    ]);
-  });
-
-  it('converts canonical transactions to display rows', () => {
-    const display = canonicalToDisplayTransaction({
-      date: '2024-02-10',
-      posted_date: '2024-02-10',
-      description: 'Card Purchase',
-      payee: 'Coffee Shop',
-      debit: 12.5,
-      credit: 0,
-      balance: null,
-      account_id: null,
-      source_bank: null,
-      statement_period: { start: null, end: null },
-      metadata: {}
-    });
-
-    expect(display).toEqual({
-      date: '02/10/2024',
-      type: 'Debit',
-      payee: 'Coffee Shop',
-      amount: '-$12.50'
-    });
-  });
-
-  it('exports canonical amounts with separate debit/credit columns for QuickBooks', () => {
-    const canonical = [
-      {
-        date: '2024-02-10',
-        posted_date: '2024-02-10',
-        description: 'Card Purchase',
-        payee: 'Coffee Shop',
-        debit: 12.5,
-        credit: 0,
-        balance: null,
-        account_id: null,
-        source_bank: null,
-        statement_period: { start: null, end: null },
-        metadata: {}
-      },
-      {
-        date: '2024-02-11',
-        posted_date: '2024-02-11',
-        description: 'Payroll',
-        payee: 'PAYROLL INC',
-        debit: 0,
-        credit: 2500,
-        balance: null,
-        account_id: null,
-        source_bank: null,
-        statement_period: { start: null, end: null },
-        metadata: {}
-      }
-    ];
-
-    const csv = exportCanonicalToCSV(canonical, { includeBom: true });
-    expect(csv.startsWith('\uFEFF')).toBe(true);
-    const [, debitLine, creditLine] = csv.replace('\uFEFF', '').split('\n');
-    expect(debitLine.split(',')[4]).toBe('12.50');
-    expect(creditLine.split(',')[5]).toBe('2500.00');
-  });
-});

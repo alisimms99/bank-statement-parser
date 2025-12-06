@@ -23,11 +23,6 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedFiles, setProcessedFiles] = useState<string[]>([]);
   const [includeBom, setIncludeBom] = useState(true);
-  const [fileStatuses, setFileStatuses] = useState<Record<string, { phase: string; message: string; source: string }>>({});
-
-  const setStatus = (file: string, phase: string, message: string, source: string = "documentai") => {
-    setFileStatuses(prev => ({ ...prev, [file]: { phase, message, source } }));
-  };
 
   const handleFilesSelected = async (files: File[]) => {
     setIsProcessing(true);
@@ -95,8 +90,7 @@ export default function Home() {
       return;
     }
 
-    const exportSource = normalizedTransactions.length > 0 ? normalizedTransactions : legacyTransactionsToCanonical(transactions);
-    const csv = exportCanonicalToCSV(exportSource, { includeBom });
+    const csv = transactionsToCSV(transactions, { includeBom });
     const timestamp = new Date().toISOString().split('T')[0];
     downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
     toast.success('CSV file downloaded successfully');
