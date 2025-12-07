@@ -348,3 +348,36 @@ export function downloadCSV(csvContent: string, filename: string = 'transactions
   
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Convert legacy Transaction[] to CanonicalTransaction[]
+ */
+export function legacyTransactionsToCanonical(transactions: Transaction[]): CanonicalTransaction[] {
+  return normalizeLegacyTransactions(
+    transactions.map(tx => ({
+      date: tx.date,
+      description: tx.payee || tx.type,
+      amount: tx.amount,
+      type: tx.type,
+      payee: tx.payee,
+    }))
+  );
+}
+
+/**
+ * Convert CanonicalTransaction to Transaction for display
+ */
+export function canonicalToDisplayTransaction(canonical: CanonicalTransaction): Transaction {
+  const amount = canonical.debit > 0 
+    ? `-$${canonical.debit.toFixed(2)}`
+    : canonical.credit > 0
+    ? `$${canonical.credit.toFixed(2)}`
+    : "$0.00";
+
+  return {
+    date: canonical.date ?? "",
+    type: canonical.metadata?.raw_type as string ?? "Transaction",
+    payee: canonical.payee ?? canonical.description,
+    amount,
+  };
+}
