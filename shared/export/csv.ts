@@ -1,66 +1,78 @@
-import { CanonicalTransaction } from "../transactions";
+import type { NormalizedTransaction } from "../types";
 
 export interface CsvExportOptions {
-  includeBom?: boolean;
+  includeBOM?: boolean;
   delimiter?: string;
 }
 
-export function exportCanonicalToCSV(transactions: CanonicalTransaction[], options: CsvExportOptions = {}): string {
-  const { includeBom = false, delimiter = "," } = options;
-  const headers = [
-    "Date",
-    "Posted Date",
-    "Description",
-    "Payee",
-    "Debit",
-    "Credit",
-    "Balance",
-    "Memo",
-  ];
+/**
+ * Convert normalized transactions to CSV for QuickBooks-friendly import.
+ */
+export function toCSV(
+  records: NormalizedTransaction[],
+  options: CsvExportOptions = {},
+): string {
+  const { includeBOM = false, delimiter = "," } = options;
 
-  const rows = transactions.map(tx => [
-    formatDisplayDate(tx.date ?? tx.posted_date),
-    formatDisplayDate(tx.posted_date),
-    tx.description,
-    tx.payee ?? tx.description,
-    formatAmount(tx.debit),
-    formatAmount(tx.credit),
-    tx.balance != null ? formatAmount(tx.balance) : "",
-    serializeMetadata(tx.metadata),
-  ]);
+  const headers = ["Date", "Description", "Payee", "Debit", "Credit", "Balance", "Memo"];
 
-  const csvContent = [
-    headers.join(delimiter),
-    ...rows.map(row => row.map(cell => escapeCell(cell, delimiter)).join(delimiter)),
-  ].join("\n");
+  const rows = records.map(record => {
+    const displayDate = formatDate(record.date ?? record.posted_date);
 
-  return includeBom ? `\uFEFF${csvContent}` : csvContent;
+    return [
+      displayDate,
+      record.description ?? "",
+      record.payee ?? record.description ?? "",
+      formatAmount(record.debit),
+      formatAmount(record.credit),
+      formatAmount(record.balance),
+      serializeMemo(record.metadata),
+    ];
+  });
+
+  const csvBody = rows
+    .map(row => row.map(cell => escapeCell(cell ?? "", delimiter)).join(delimiter))
+    .join("\n");
+
+  const csvContent = [headers.join(delimiter), csvBody].filter(Boolean).join("\n");
+
+  return includeBOM ? `\uFEFF${csvContent}` : csvContent;
 }
 
-function escapeCell(cell: string, delimiter: string): string {
-  if (cell == null) return "";
-  const needsEscaping = cell.includes(delimiter) || cell.includes("\n") || cell.includes("\"");
-  if (!needsEscaping) return cell;
-  return `"${cell.replace(/\"/g, '""')}"`;
+function escapeCell(value: string, delimiter: string): string {
+  if (value === "") return "";
+  const needsEscaping = value.includes(delimiter) || value.includes("\n") || value.includes("\"");
+  if (!needsEscaping) return value;
+  return `"${value.replace(/\"/g, '""')}"`;
 }
 
-function formatAmount(value: number): string {
-  const n = Number(value || 0);
-  if (!Number.isFinite(n)) return "";
-  return n.toFixed(2);
+function formatAmount(value: number | null | undefined): string {
+  if (value == null) return "";
+  const numeric = Math.abs(Number(String(value).replace(/,/g, "")));
+  if (!Number.isFinite(numeric)) return "";
+  return numeric.toFixed(2);
 }
 
-function formatDisplayDate(value: string | null): string {
+function formatDate(value: string | null | undefined): string {
   if (!value) return "";
-  const [y, m, d] = value.split("-");
-  if (!y || !m || !d) return value;
-  return `${m}/${d}/${y}`;
+  const isoPart = value.split("T")[0];
+  const match = isoPart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value;
+  const [, year, month, day] = match;
+  return `${month}/${day}/${year}`;
 }
 
-function serializeMetadata(metadata: Record<string, any>): string {
-  if (!metadata || Object.keys(metadata).length === 0) return "";
+function serializeMemo(metadata: Record<string, any> | undefined): string {
+  if (!metadata) return "";
+
+  const cleanedEntries = Object.entries(metadata).filter(([key]) =>
+    !["edited", "edited_at", "editedAt"].includes(key),
+  );
+
+  if (cleanedEntries.length === 0) return "";
+
   try {
-    return JSON.stringify(metadata);
+    return JSON.stringify(Object.fromEntries(cleanedEntries));
   } catch {
     return "";
   }

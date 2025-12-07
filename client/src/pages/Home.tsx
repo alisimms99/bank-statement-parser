@@ -11,15 +11,15 @@ import {
   Transaction
 } from "@/lib/pdfParser";
 import { ingestWithDocumentAI } from "@/lib/ingestionClient";
-import type { CanonicalTransaction } from "@shared/transactions";
-import { exportCanonicalToCSV } from "@shared/export/csv";
+import type { NormalizedTransaction } from "@shared/types";
+import { toCSV } from "@shared/export/csv";
 import { Download, FileText, Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [normalizedTransactions, setNormalizedTransactions] = useState<CanonicalTransaction[]>([]);
+  const [normalizedTransactions, setNormalizedTransactions] = useState<NormalizedTransaction[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedFiles, setProcessedFiles] = useState<string[]>([]);
   const [includeBom, setIncludeBom] = useState(true);
@@ -27,7 +27,7 @@ export default function Home() {
   const handleFilesSelected = async (files: File[]) => {
     setIsProcessing(true);
     const allTransactions: Transaction[] = [];
-    const allCanonical: CanonicalTransaction[] = [];
+    const allCanonical: NormalizedTransaction[] = [];
     const fileNames: string[] = [];
 
     try {
@@ -104,12 +104,12 @@ export default function Home() {
   };
 
   const handleExportCSV = () => {
-    if (transactions.length === 0) {
+    if (normalizedTransactions.length === 0) {
       toast.error('No transactions to export');
       return;
     }
 
-    const csv = transactionsToCSV(transactions, { includeBom });
+    const csv = toCSV(normalizedTransactions, { includeBOM: includeBom });
     const timestamp = new Date().toISOString().split('T')[0];
     downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
     toast.success('CSV file downloaded successfully');
