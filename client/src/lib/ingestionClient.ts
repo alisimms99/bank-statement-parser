@@ -29,7 +29,12 @@ export async function ingestWithDocumentAI(
       return { document: payload.document as CanonicalDocument, source: payload.source ?? "documentai" };
     }
 
-    return { document: null, source: payload.source ?? "unavailable", error: payload.error };
+    const normalizedError =
+      typeof payload.error === "string"
+        ? payload.error
+        : payload.error?.message ?? "Unknown error";
+
+    return { document: null, source: payload.source ?? "unavailable", error: normalizedError };
   } catch (error: any) {
     return { document: null, source: "error", error: error?.message ?? "Unknown error" };
   }
