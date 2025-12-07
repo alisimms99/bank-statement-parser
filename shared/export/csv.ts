@@ -18,11 +18,14 @@ export function toCSV(
 
   const rows = records.map(record => {
     const displayDate = formatDate(record.date ?? record.posted_date);
+    const payee = record.payee?.trim()
+      ? record.payee
+      : record.description ?? "";
 
     return [
       displayDate,
       record.description ?? "",
-      record.payee ?? record.description ?? "",
+      payee,
       formatAmount(record.debit),
       formatAmount(record.credit),
       formatAmount(record.balance),
