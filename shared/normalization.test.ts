@@ -6,7 +6,7 @@ import {
   normalizeDocumentAITransactions,
   normalizeLegacyTransactions,
 } from "./normalization";
-import { docAiBankFixture } from "../fixtures/transactions";
+import { docAiBankFixture, legacyTransactionsFixture } from "../fixtures/transactions";
 
 describe("normalizeAmount", () => {
   it("assigns negative values to debit and strips currency", () => {
@@ -17,6 +17,11 @@ describe("normalizeAmount", () => {
   it("assigns positive values to credit when no negative markers", () => {
     expect(normalizeAmount("99.99")).toEqual({ debit: 0, credit: 99.99 });
     expect(normalizeAmount("1,000", "credit")).toEqual({ debit: 0, credit: 1000 });
+  });
+
+  it("cleans currency markers and applies direction hints", () => {
+    expect(normalizeAmount("€1,234.00", "credit")).toEqual({ debit: 0, credit: 1234 });
+    expect(normalizeAmount("USD 89.10", "debit")).toEqual({ debit: 89.1, credit: 0 });
   });
 });
 
@@ -29,6 +34,11 @@ describe("normalizeDateString", () => {
   it("returns null on unparseable input", () => {
     expect(normalizeDateString("not-a-date")).toBeNull();
   });
+
+  it("trims surrounding whitespace and normalizes separators", () => {
+    expect(normalizeDateString(" 2024-03-02 ")).toBe("2024-03-02");
+    expect(normalizeDateString("03-04-2024")).toBe("2024-03-04");
+  });
 });
 
 describe("normalizeLegacyTransactions", () => {
@@ -40,6 +50,38 @@ describe("normalizeLegacyTransactions", () => {
 
     expect(normalized[0]).toMatchObject({ payee: "Coffee Shop", debit: 5.25, credit: 0, posted_date: "2024-02-01" });
     expect(normalized[1]).toMatchObject({ payee: "PAYROLL", credit: 1200, debit: 0, posted_date: "2024-02-02" });
+  });
+
+  it("normalizes fixture data with payee fallback, cleaned numbers, and dates", () => {
+    const normalized = normalizeLegacyTransactions(legacyTransactionsFixture);
+
+    expect(normalized[0]).toMatchObject({
+      description: "Morning Coffee",
+      payee: "Morning Coffee",
+      debit: 4.5,
+      credit: 0,
+      balance: 995.5,
+      posted_date: "2024-01-15",
+      statement_period: { start: "2024-01-01", end: "2024-01-31" },
+    });
+
+    expect(normalized[1]).toMatchObject({
+      payee: "Employer Payroll",
+      debit: 0,
+      credit: 1200,
+      balance: 2195.5,
+      posted_date: "2024-01-16",
+    });
+
+    expect(normalized[2]).toMatchObject({
+      description: "CHECK #1234",
+      payee: "CHECK #1234",
+      debit: 200,
+      credit: 0,
+      posted_date: "2024-01-17",
+      statement_period: { start: "2024-01-01", end: "2024-01-31" },
+      metadata: { raw_type: "check" },
+    });
   });
 });
 
