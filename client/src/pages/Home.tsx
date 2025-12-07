@@ -25,7 +25,7 @@ const DEBUG_VIEW = import.meta.env.VITE_DEBUG_VIEW === "true" || import.meta.env
 
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [normalizedTransactions, setNormalizedTransactions] = useState<CanonicalTransaction[]>([]);
+  const [normalizedTransactions, setNormalizedTransactions] = useState<NormalizedTransaction[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedFiles, setProcessedFiles] = useState<string[]>([]);
   const [includeBom, setIncludeBom] = useState(true);
@@ -47,7 +47,7 @@ export default function Home() {
   const handleFilesSelected = async (files: File[]) => {
     setIsProcessing(true);
     const allTransactions: Transaction[] = [];
-    const allCanonical: CanonicalTransaction[] = [];
+    const allCanonical: NormalizedTransaction[] = [];
     const fileNames: string[] = [];
     let latestSource: "documentai" | "unavailable" | "error" = "unavailable";
 
@@ -131,12 +131,12 @@ export default function Home() {
   };
 
   const handleExportCSV = () => {
-    if (transactions.length === 0) {
+    if (normalizedTransactions.length === 0) {
       toast.error('No transactions to export');
       return;
     }
 
-    const csv = transactionsToCSV(transactions, { includeBom });
+    const csv = toCSV(normalizedTransactions, { includeBOM: includeBom });
     const timestamp = new Date().toISOString().split('T')[0];
     downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
     toast.success('CSV file downloaded successfully');
