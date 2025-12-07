@@ -1,6 +1,8 @@
 import { Upload } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
+const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
+
 interface FileUploadProps {
   onFilesSelected: (files: File[]) => void;
   accept?: string;
@@ -13,6 +15,42 @@ export default function FileUpload({
   multiple = true 
 }: FileUploadProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handleValidatedFiles = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) {
+        return;
+      }
+
+      const validFiles: File[] = [];
+      const errors: string[] = [];
+
+      files.forEach(file => {
+        if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+          errors.push(`${file.name} exceeds the 25MB upload limit.`);
+          return;
+        }
+
+        const isPdfMime = file.type === 'application/pdf';
+        const isPdfExtension = file.name.toLowerCase().endsWith('.pdf');
+
+        if (!isPdfMime && !isPdfExtension) {
+          errors.push(`${file.name} is not a PDF file.`);
+          return;
+        }
+
+        validFiles.push(file);
+      });
+
+      if (validFiles.length > 0) {
+        onFilesSelected(validFiles);
+      }
+
+      setErrorMessage(errors.length > 0 ? errors.join(' ') : null);
+    },
+    [onFilesSelected]
+  );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -28,21 +66,16 @@ export default function FileUpload({
     e.preventDefault();
     setIsDragging(false);
     
-    const files = Array.from(e.dataTransfer.files).filter(file => 
-      file.type === 'application/pdf' || file.name.endsWith('.pdf')
-    );
-    
-    if (files.length > 0) {
-      onFilesSelected(files);
-    }
-  }, [onFilesSelected]);
+    const files = Array.from(e.dataTransfer.files);
+    handleValidatedFiles(files);
+  }, [handleValidatedFiles]);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      onFilesSelected(Array.from(files));
+      handleValidatedFiles(Array.from(files));
     }
-  }, [onFilesSelected]);
+  }, [handleValidatedFiles]);
 
   return (
     <div
@@ -105,6 +138,16 @@ export default function FileUpload({
         </div>
       </div>
       
+      {errorMessage && (
+        <p
+          role="alert"
+          aria-live="polite"
+          className="text-xs text-destructive px-6 pb-3 pt-1"
+        >
+          {errorMessage}
+        </p>
+      )}
+
       {/* Glassmorphism effect overlay */}
       <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none" />
     </div>

@@ -39,6 +39,13 @@ export default function Home() {
         try {
           const result = await ingestWithDocumentAI(file, "bank_statement");
 
+          if (result.source === "error") {
+            const message = result.error ?? "Invalid upload";
+            toast.error(message);
+            setStatus(file.name, "error", message, "error");
+            continue;
+          }
+
           if (result.document && result.document.transactions.length > 0) {
             setStatus(file.name, "extraction", "Document AI extraction complete", "documentai");
             const canonical = result.document.transactions;
