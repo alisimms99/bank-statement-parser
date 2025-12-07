@@ -1,5 +1,5 @@
 import type { CanonicalTransaction } from "@shared/transactions";
-import type { DocumentAiNormalizedDocument } from "@shared/normalization";
+import type { DocumentAiNormalizedDocument, LegacyTransactionLike } from "@shared/normalization";
 
 export const sampleCanonicalTransactions: CanonicalTransaction[] = [
   {
@@ -81,3 +81,37 @@ export const docAiInvoiceFixture: DocumentAiNormalizedDocument = {
 };
 
 export const malformedPdfBuffer = Buffer.from("not-a-real-pdf");
+
+export const legacyTransactionsFixture: LegacyTransactionLike[] = [
+  {
+    date: " 01/15/24 ",
+    description: "  Morning Coffee  ",
+    amount: "$-4.50",
+    payee: "",
+    balance: "$995.50",
+    account_id: "acct-123",
+    source_bank: "Citizens",
+    statement_period: { start: "01/01/2024", end: "01/31/2024" },
+  },
+  {
+    date: "2024-01-16",
+    description: "Employer Payroll",
+    amount: "1,200.00",
+    payee: "Employer Payroll",
+    directionHint: "credit",
+    balance: "2,195.50",
+    account_id: "acct-123",
+    source_bank: "Citizens",
+    statement_period: { start: "2024-01-01", end: "2024-01-31" },
+  },
+  {
+    date: "01-17-2024",
+    description: "CHECK #1234",
+    amount: "(200.00)",
+    payee: "  ",
+    type: "check",
+    account_id: "acct-123",
+    source_bank: "Citizens",
+    statement_period: { start: "2024/01/01", end: "2024/01/31" },
+  },
+];
