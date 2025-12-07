@@ -2,20 +2,26 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import FileUpload from "@/components/FileUpload";
 import TransactionTable from "@/components/TransactionTable";
+import DebugPanel, { type IngestionDebugData } from "@/components/ingestion/DebugPanel";
+import type { FileStatus } from "@/components/ingestion/StepFlow";
 import {
   canonicalToDisplayTransaction,
   downloadCSV,
   extractTextFromPDF,
   legacyTransactionsToCanonical,
   parseStatementText,
+  transactionsToCSV,
   Transaction
 } from "@/lib/pdfParser";
 import { ingestWithDocumentAI } from "@/lib/ingestionClient";
-import type { NormalizedTransaction } from "@shared/types";
-import { toCSV } from "@shared/export/csv";
+import type { CanonicalTransaction } from "@shared/transactions";
 import { Download, FileText, Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
+
+// Check if debug view is enabled via environment variable
+// Supports both VITE_DEBUG_VIEW (Vite convention) and DEBUG_VIEW (as specified in requirements)
+const DEBUG_VIEW = import.meta.env.VITE_DEBUG_VIEW === "true" || import.meta.env.VITE_DEBUG_VIEW === true;
 
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -23,21 +29,41 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedFiles, setProcessedFiles] = useState<string[]>([]);
   const [includeBom, setIncludeBom] = useState(true);
+  const [fileStatuses, setFileStatuses] = useState<Record<string, FileStatus>>({});
+  const [showDebug, setShowDebug] = useState(DEBUG_VIEW);
+  const [ingestionSource, setIngestionSource] = useState<"documentai" | "unavailable" | "error">("unavailable");
+  
+  // Cache files for retry functionality
+  const fileCache = useRef<Map<string, File>>(new Map());
+
+  // Helper function to update file status
+  const setStatus = (fileName: string, phase: FileStatus["phase"], message: string, source: FileStatus["source"]) => {
+    setFileStatuses(prev => ({
+      ...prev,
+      [fileName]: { phase, message, source },
+    }));
+  };
 
   const handleFilesSelected = async (files: File[]) => {
     setIsProcessing(true);
     const allTransactions: Transaction[] = [];
     const allCanonical: NormalizedTransaction[] = [];
     const fileNames: string[] = [];
+    let latestSource: "documentai" | "unavailable" | "error" = "unavailable";
+
+    // Cache files for retry
+    files.forEach(file => {
+      fileCache.current.set(file.name, file);
+    });
 
     try {
-      let processedCount = 0;
       for (const file of files) {
         toast.info(`Processing ${file.name}...`);
         setStatus(file.name, "upload", "File received", "documentai");
 
         try {
           const result = await ingestWithDocumentAI(file, "bank_statement");
+          latestSource = result.source;
 
           if (result.source === "error") {
             const message = result.error ?? "Invalid upload";
@@ -80,6 +106,7 @@ export default function Home() {
       setTransactions(allTransactions);
       setNormalizedTransactions(allCanonical);
       setProcessedFiles(fileNames);
+      setIngestionSource(latestSource);
       
       if (allTransactions.length > 0) {
         toast.success(`Total: ${allTransactions.length} transactions from ${fileNames.length} file(s)`);
@@ -92,15 +119,15 @@ export default function Home() {
     }
   };
 
-  const handleRetry = async (fileName: string) => {
-    const cached = fileCache.current.get(fileName);
-    if (!cached) {
-      toast.error("Original file is not available to retry. Please re-upload.");
-      return;
-    }
-    setIsProcessing(true);
-    await processFile(cached);
-    setIsProcessing(false);
+  const handleRetry = () => {
+    // Reset all state and clear cache
+    setTransactions([]);
+    setNormalizedTransactions([]);
+    setProcessedFiles([]);
+    setFileStatuses({});
+    setIngestionSource("unavailable");
+    fileCache.current.clear();
+    toast.info("Pipeline reset. Please upload files again.");
   };
 
   const handleExportCSV = () => {
@@ -184,56 +211,40 @@ export default function Home() {
                 </div>
               )}
 
-              {(docAiFiles > 0 || legacyFiles > 0) && (
+              {Object.keys(fileStatuses).length > 0 && (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div className="rounded-lg border border-border/60 bg-card/60 p-3 text-sm">
                     <div className="text-xs text-muted-foreground">Document AI path</div>
-                    <div className="text-lg font-semibold text-foreground">{docAiFiles} file(s)</div>
+                    <div className="text-lg font-semibold text-foreground">
+                      {Object.values(fileStatuses).filter(s => s.source === "documentai").length} file(s)
+                    </div>
                     <p className="text-xs text-muted-foreground">Requires ENABLE_DOC_AI and valid credentials.</p>
                   </div>
                   <div className="rounded-lg border border-border/60 bg-card/60 p-3 text-sm">
                     <div className="text-xs text-muted-foreground">Legacy fallback</div>
-                    <div className="text-lg font-semibold text-foreground">{legacyFiles} file(s)</div>
+                    <div className="text-lg font-semibold text-foreground">
+                      {Object.values(fileStatuses).filter(s => s.source === "legacy").length} file(s)
+                    </div>
                     <p className="text-xs text-muted-foreground">Used when Document AI is unavailable or errors.</p>
                   </div>
                   <div className="rounded-lg border border-border/60 bg-card/60 p-3 text-sm">
                     <div className="text-xs text-muted-foreground">Normalization ready</div>
-                    <div className="text-lg font-semibold text-foreground">{exportReadyCount} transaction(s)</div>
+                    <div className="text-lg font-semibold text-foreground">{normalizedTransactions.length} transaction(s)</div>
                     <p className="text-xs text-muted-foreground">Ready to export to CSV once processing finishes.</p>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Results section */}
-            {showDebug && (
-              <div className="rounded-xl border border-dashed border-border/70 bg-card/50 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-foreground">Developer debug view</div>
-                    <p className="text-xs text-muted-foreground">
-                      Raw normalized transactions and ingestion metadata for troubleshooting.
-                    </p>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={() => setShowDebug(false)}>
-                    Hide debug
-                  </Button>
-                </div>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div className="rounded-lg border border-border/60 bg-background/70 p-3">
-                    <div className="text-xs font-medium text-muted-foreground mb-2">Normalized transactions</div>
-                    <pre className="text-[11px] whitespace-pre-wrap break-words max-h-64 overflow-auto">
-                      {JSON.stringify(normalizedTransactions, null, 2)}
-                    </pre>
-                  </div>
-                  <div className="rounded-lg border border-border/60 bg-background/70 p-3">
-                    <div className="text-xs font-medium text-muted-foreground mb-2">Ingestion statuses</div>
-                    <pre className="text-[11px] whitespace-pre-wrap break-words max-h-64 overflow-auto">
-                      {JSON.stringify(fileStatuses, null, 2)}
-                    </pre>
-                  </div>
-                </div>
-              </div>
+            {/* Debug Panel */}
+            {showDebug && normalizedTransactions.length > 0 && (
+              <DebugPanel
+                ingestionData={{
+                  source: ingestionSource,
+                  normalizedTransactions,
+                }}
+                onRetry={handleRetry}
+              />
             )}
 
             {transactions.length > 0 && !isProcessing && (
