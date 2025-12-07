@@ -10,11 +10,11 @@ import {
   extractTextFromPDF,
   legacyTransactionsToCanonical,
   parseStatementText,
-  transactionsToCSV,
   Transaction
 } from "@/lib/pdfParser";
 import { ingestWithDocumentAI } from "@/lib/ingestionClient";
-import type { CanonicalTransaction } from "@shared/transactions";
+import { toCSV } from "@shared/export/csv";
+import type { NormalizedTransaction } from "@shared/types";
 import { Download, FileText, Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";

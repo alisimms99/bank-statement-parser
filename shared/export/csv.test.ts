@@ -49,13 +49,30 @@ describe("toCSV", () => {
     expect(row).toBe("03/15/2024,ATM Withdrawal,ATM Withdrawal,1234.56,0.00,,");
   });
 
-  it("ignores edited flags in metadata", () => {
+  it("falls back to description when payee is null", () => {
+    const records: NormalizedTransaction[] = [
+      {
+        ...baseTransaction,
+        description: "Payee Placeholder",
+        payee: null,
+        debit: 42,
+      },
+    ];
+
+    const csv = toCSV(records);
+    const [, row] = csv.split("\n");
+
+    expect(row).toBe("01/05/2024,Payee Placeholder,Payee Placeholder,42.00,0.00,,");
+  });
+
+  it("ignores edited flags in metadata while keeping other entries", () => {
     const records: NormalizedTransaction[] = [
       {
         ...baseTransaction,
         metadata: {
           edited: true,
           edited_at: "2024-01-06T12:00:00Z",
+          note: "keep me",
         },
       },
     ];
@@ -63,20 +80,12 @@ describe("toCSV", () => {
     const csv = toCSV(records);
     const [, row] = csv.split("\n");
 
-    expect(row.endsWith(",")).toBe(true);
+    expect(row.endsWith("{\"note\":\"keep me\"}")).toBe(true);
   });
 
-  it("outputs blank memo when metadata is empty", () => {
-    const records: NormalizedTransaction[] = [
-      {
-        ...baseTransaction,
-        metadata: {},
-      },
-    ];
+  it("returns only headers for an empty list", () => {
+    const csv = toCSV([]);
 
-    const csv = toCSV(records);
-    const [, row] = csv.split("\n");
-
-    expect(row.endsWith(",")).toBe(true);
+    expect(csv).toBe("Date,Description,Payee,Debit,Credit,Balance,Memo");
   });
 });
