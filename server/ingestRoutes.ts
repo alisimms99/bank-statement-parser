@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { z } from "zod";
-import { processWithDocumentAI } from "./_core/documentAi";
+import { tryDocumentAI } from "./core/documentAIClient";
 import { normalizeLegacyTransactions } from "@shared/normalization";
 import type { CanonicalDocument } from "@shared/transactions";
 
@@ -22,13 +22,26 @@ export function registerIngestionRoutes(app: Express) {
 
     try {
       const buffer = Buffer.from(contentBase64, "base64");
-      const document = await processWithDocumentAI(buffer, documentType);
+      
+      // Try Document AI stub first
+      const docAIResult = await tryDocumentAI(buffer);
 
-      if (document) {
+      if (docAIResult.source === "docai" && docAIResult.transactions.length > 0) {
+        // Document AI succeeded - return normalized transactions
+        const document: CanonicalDocument = {
+          documentType,
+          transactions: docAIResult.transactions,
+          warnings: [],
+          rawText: undefined,
+        };
+
+        console.log(`[Ingestion] Document AI succeeded for ${fileName}: ${docAIResult.transactions.length} transactions`);
         return res.json({ source: "documentai", document });
       }
 
-      // No Document AI available; echo back for client-side fallback normalization
+      // Document AI failed or returned no transactions - signal fallback needed
+      console.log(`[Ingestion] Document AI fallback triggered for ${fileName}`);
+      
       const legacyDoc: CanonicalDocument = {
         documentType,
         transactions: normalizeLegacyTransactions([]),
@@ -36,7 +49,7 @@ export function registerIngestionRoutes(app: Express) {
         rawText: undefined,
       };
 
-      return res.status(503).json({ source: "unavailable", document: legacyDoc });
+      return res.status(503).json({ source: "fallback", document: legacyDoc });
     } catch (error) {
       console.error("Error processing ingestion", { fileName, documentType, error });
       return res.status(500).json({ error: "Failed to ingest document", fallback: "legacy" });
