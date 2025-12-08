@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { z } from "zod";
 import { tryDocumentAI } from "./core/documentAIClient";
 import { normalizeLegacyTransactions } from "@shared/normalization";
-import type { CanonicalDocument } from "@shared/transactions";
+import type { CanonicalDocument, CanonicalTransaction } from "@shared/transactions";
 
 const ingestSchema = z.object({
   fileName: z.string(),
@@ -27,10 +27,15 @@ export function registerIngestionRoutes(app: Express) {
       const docAIResult = await tryDocumentAI(buffer);
 
       if (docAIResult.source === "docai" && docAIResult.transactions.length > 0) {
-        // Document AI succeeded - return normalized transactions
+        // Document AI succeeded - convert NormalizedTransaction to CanonicalTransaction
+        const canonicalTransactions: CanonicalTransaction[] = docAIResult.transactions.map(tx => ({
+          ...tx,
+          statement_period: tx.statement_period ?? { start: null, end: null },
+          metadata: tx.metadata ?? {},
+        }));
         const document: CanonicalDocument = {
           documentType,
-          transactions: docAIResult.transactions,
+          transactions: canonicalTransactions,
           warnings: [],
           rawText: undefined,
         };
