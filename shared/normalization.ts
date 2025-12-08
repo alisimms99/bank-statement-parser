@@ -50,7 +50,7 @@ export function normalizeLegacyTransactions(legacy: LegacyTransactionLike[]): Ca
       date: posted_date,
       posted_date,
       description,
-      payee: payee || null,
+      payee,
       debit: amountParts.debit,
       credit: amountParts.credit,
       balance: normalizeNumber(item.balance),
