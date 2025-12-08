@@ -1,7 +1,7 @@
 import type { Express, Request } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { processWithDocumentAI } from "./_core/documentAIClient";
+import { processWithDocumentAI, processWithDocumentAIStructured } from "./_core/documentAIClient";
 import { getDocumentAiConfig } from "./_core/env";
 import { normalizeLegacyTransactions } from "@shared/normalization";
 import type { CanonicalDocument, CanonicalTransaction } from "@shared/transactions";
@@ -123,22 +123,34 @@ export function registerIngestionRoutes(app: Express) {
       const isDocAIEnabled = config && config.enabled === true;
 
       // Try Document AI first (if enabled)
-      docAiResult = isDocAIEnabled
-        ? await processWithDocumentAI(buffer, documentType)
-        : {
-            document: null,
-            telemetry: {
-              enabled: false,
-              processor: null,
-              latencyMs: null,
-              entityCount: 0,
-            } satisfies DocumentAiTelemetry,
-          };
+      let docAIDocument: CanonicalDocument | null = null;
+      let processorId: string | undefined;
+      
+      if (isDocAIEnabled) {
+        // Use structured version to get processor info for debug panel
+        const docAIResult = await processWithDocumentAIStructured(buffer, documentType);
+        
+        if (docAIResult.success) {
+          docAIDocument = docAIResult.document;
+          processorId = docAIResult.processorId;
+          console.log(`[Ingestion] Document AI succeeded for ${fileName}: ${docAIResult.document.transactions.length} transactions using processor ${docAIResult.processorId} (${docAIResult.processorType})`);
+        } else {
+          // Log structured error info
+          console.warn(`[Ingestion] Document AI failed for ${fileName}:`, {
+            code: docAIResult.error.code,
+            message: docAIResult.error.message,
+            processorId: docAIResult.error.processorId,
+          });
+        }
+      }
 
-      if (docAiResult.document && docAiResult.document.transactions.length > 0) {
-        // Document AI succeeded
-        console.log(`[Ingestion] Document AI succeeded for ${fileName}: ${docAiResult.document.transactions.length} transactions`);
-        return res.json({ source: "documentai", document: docAiResult.document, docAiTelemetry: docAiResult.telemetry });
+      if (docAIDocument && docAIDocument.transactions.length > 0) {
+        // Document AI succeeded - include processor ID in response for debug panel
+        return res.json({ 
+          source: "documentai", 
+          document: docAIDocument,
+          processorId, // Include processor ID for debug panel
+        });
       }
 
       // Document AI failed or disabled - use legacy fallback
