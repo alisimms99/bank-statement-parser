@@ -53,10 +53,10 @@ export async function processWithDocumentAI(
     entities: result.document?.entities?.map(entity => ({
       type: entity.type ?? undefined,
       mentionText: entity.mentionText ?? undefined,
-      confidence: entity.confidence,
+      confidence: entity.confidence ?? undefined,
       normalizedValue: entity.normalizedValue
         ? {
-            text: entity.normalizedValue.text,
+            text: entity.normalizedValue.text ?? undefined,
             dateValue: (entity.normalizedValue as any).dateValue,
             moneyValue: (entity.normalizedValue as any).moneyValue,
           }
@@ -64,17 +64,17 @@ export async function processWithDocumentAI(
       properties: entity.properties?.map(prop => ({
         type: prop.type ?? undefined,
         mentionText: prop.mentionText ?? undefined,
-        confidence: prop.confidence,
+        confidence: prop.confidence ?? undefined,
         normalizedValue: prop.normalizedValue
           ? {
-              text: prop.normalizedValue.text,
+              text: prop.normalizedValue.text ?? undefined,
               dateValue: (prop.normalizedValue as any).dateValue,
               moneyValue: (prop.normalizedValue as any).moneyValue,
             }
           : undefined,
       })),
     })),
-    text: result.document?.text,
+    text: result.document?.text ?? undefined,
   };
 
   const transactions = normalizeDocumentAITransactions(normalizedDoc, documentType);

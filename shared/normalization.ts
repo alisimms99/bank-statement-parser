@@ -36,33 +36,34 @@ export interface LegacyTransactionLike {
 }
 
 export function normalizeLegacyTransactions(legacy: LegacyTransactionLike[]): CanonicalTransaction[] {
-  return legacy
-    .map(item => {
-      const description = collapseWhitespace(item.description);
-      const payee = collapseWhitespace(item.payee ?? "") || description;
-      const amountParts = normalizeAmount(item.amount, item.directionHint);
-      const posted_date = normalizeDateString(item.date);
+  const results: (CanonicalTransaction | null)[] = legacy.map(item => {
+    const description = collapseWhitespace(item.description);
+    const payeeRaw = collapseWhitespace(item.payee ?? "") || description;
+    const payee: string | null = payeeRaw.length > 0 ? payeeRaw : null;
+    const amountParts = normalizeAmount(item.amount, item.directionHint);
+    const posted_date = normalizeDateString(item.date);
 
-      if (!amountParts || (!amountParts.debit && !amountParts.credit)) return null;
+    if (!amountParts || (!amountParts.debit && !amountParts.credit)) return null;
 
-      return {
-        date: posted_date,
-        posted_date,
-        description,
-        payee,
-        debit: amountParts.debit,
-        credit: amountParts.credit,
-        balance: normalizeNumber(item.balance),
-        account_id: item.account_id ?? null,
-        source_bank: item.source_bank ?? null,
-        statement_period: item.statement_period ? {
-          start: normalizeDateString(item.statement_period.start ?? null),
-          end: normalizeDateString(item.statement_period.end ?? null)
-        } : undefined,
-        metadata: { raw_type: item.type ?? null } as Record<string, any>
-      } satisfies CanonicalTransaction;
-    })
-    .filter((t): t is CanonicalTransaction => t !== null);
+    return {
+      date: posted_date,
+      posted_date,
+      description,
+      payee,
+      debit: amountParts.debit,
+      credit: amountParts.credit,
+      balance: normalizeNumber(item.balance),
+      account_id: item.account_id ?? null,
+      source_bank: item.source_bank ?? null,
+      statement_period: {
+        start: normalizeDateString(item.statement_period?.start ?? null),
+        end: normalizeDateString(item.statement_period?.end ?? null)
+      },
+      metadata: { raw_type: item.type ?? null }
+    } satisfies CanonicalTransaction;
+  });
+  
+  return results.filter((t): t is CanonicalTransaction => t !== null);
 }
 
 export function normalizeDocumentAITransactions(
