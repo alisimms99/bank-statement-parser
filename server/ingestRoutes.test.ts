@@ -5,11 +5,12 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { registerIngestionRoutes } from "./ingestRoutes";
 import type { CanonicalDocument } from "@shared/transactions";
 import { sampleCanonicalTransactions } from "../fixtures/transactions";
-import { processWithDocumentAI } from "./_core/documentAIClient";
+import { processWithDocumentAI, processWithDocumentAIStructured } from "./_core/documentAIClient";
 import { getDocumentAiConfig } from "./_core/env";
 
 vi.mock("./_core/documentAIClient", () => ({
   processWithDocumentAI: vi.fn(),
+  processWithDocumentAIStructured: vi.fn(),
 }));
 
 vi.mock("./_core/env", () => ({
@@ -59,6 +60,7 @@ vi.mock("pdfjs-dist", () => ({
 }));
 
 const processMock = processWithDocumentAI as unknown as vi.Mock;
+const processStructuredMock = processWithDocumentAIStructured as unknown as vi.Mock;
 const envMock = getDocumentAiConfig as unknown as vi.Mock;
 
 const sampleDocument: CanonicalDocument = {
@@ -94,7 +96,12 @@ describe("registerIngestionRoutes", () => {
   });
 
   it("returns Document AI results when enabled and successful", async () => {
-    processMock.mockResolvedValue({ document: sampleDocument, telemetry: sampleTelemetry });
+    processStructuredMock.mockResolvedValue({
+      success: true,
+      document: sampleDocument,
+      processorId: "test-processor-id",
+      processorType: "bank",
+    });
 
     const app = express();
     app.use(express.json());
@@ -108,14 +115,18 @@ describe("registerIngestionRoutes", () => {
     expect(res.status).toBe(200);
     expect(res.body.source).toBe("documentai");
     expect(res.body.document.transactions).toHaveLength(sampleCanonicalTransactions.length);
-    expect(res.body.docAiTelemetry).toEqual(sampleTelemetry);
-    expect(processMock).toHaveBeenCalled();
+    expect(res.body.processorId).toBe("test-processor-id");
+    expect(processStructuredMock).toHaveBeenCalled();
   });
 
   it("falls back to legacy when Document AI fails", async () => {
-    processMock.mockResolvedValue({
-      document: null,
-      telemetry: sampleTelemetry,
+    processStructuredMock.mockResolvedValue({
+      success: false,
+      error: {
+        code: "processing_error",
+        message: "Document AI processing failed",
+        processorId: "test-processor-id",
+      },
     });
 
     const app = express();
@@ -144,9 +155,12 @@ describe("registerIngestionRoutes", () => {
       processors: {},
       missing: ["enable"],
     });
-    processMock.mockResolvedValue({
-      document: null,
-      telemetry: { enabled: false, processor: null, latencyMs: null, entityCount: 0 },
+    processStructuredMock.mockResolvedValue({
+      success: false,
+      error: {
+        code: "disabled",
+        message: "Document AI is disabled",
+      },
     });
 
     const app = express();
