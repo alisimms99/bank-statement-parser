@@ -3,6 +3,7 @@ import { z } from "zod";
 import { tryDocumentAI } from "./core/documentAIClient";
 import { normalizeLegacyTransactions } from "@shared/normalization";
 import type { CanonicalDocument } from "@shared/transactions";
+import { getDocumentAiConfig } from "./_core/env";
 
 const ingestSchema = z.object({
   fileName: z.string(),
@@ -11,6 +12,19 @@ const ingestSchema = z.object({
 });
 
 export function registerIngestionRoutes(app: Express) {
+  // Environment status endpoint for diagnostics
+  app.get("/api/env/status", (_req, res) => {
+    const config = getDocumentAiConfig();
+    const docaiConfigured = config.enabled && config.ready;
+    const ingestMode: "docai" | "fallback" = docaiConfigured ? "docai" : "fallback";
+    
+    return res.json({
+      docaiConfigured,
+      ingestMode,
+      lastChecked: new Date().toISOString(),
+    });
+  });
+
   app.post("/api/ingest", async (req, res) => {
     const parsed = ingestSchema.safeParse(req.body);
 
