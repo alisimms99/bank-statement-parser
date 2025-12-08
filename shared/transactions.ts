@@ -88,3 +88,27 @@ export function isEdited(tx: NormalizedTransaction): boolean {
   return tx.metadata?.edited === true;
 }
 
+/**
+ * Convert NormalizedTransaction to CanonicalTransaction.
+ * 
+ * Ensures all required fields are present by filling in defaults for optional fields.
+ * This is useful at API boundaries where the canonical format is required.
+ * 
+ * @param tx - The normalized transaction to convert
+ * @returns A canonical transaction with all required fields
+ * 
+ * @example
+ * ```ts
+ * const canonical = toCanonical(normalizedTx);
+ * // canonical.statement_period is guaranteed to be present
+ * // canonical.metadata is guaranteed to be present
+ * ```
+ */
+export function toCanonical(tx: NormalizedTransaction): CanonicalTransaction {
+  return {
+    ...tx,
+    statement_period: tx.statement_period ?? { start: null, end: null },
+    metadata: tx.metadata ?? {},
+  };
+}
+

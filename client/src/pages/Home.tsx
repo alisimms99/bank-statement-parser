@@ -21,7 +21,7 @@ import { toast } from "sonner";
 
 // Check if debug view is enabled via environment variable
 // Supports both VITE_DEBUG_VIEW (Vite convention) and DEBUG_VIEW (as specified in requirements)
-const DEBUG_VIEW = import.meta.env.VITE_DEBUG_VIEW === "true" || import.meta.env.VITE_DEBUG_VIEW === true;
+const DEBUG_VIEW = import.meta.env.VITE_DEBUG_VIEW === "true";
 
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
