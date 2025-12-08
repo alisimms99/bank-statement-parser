@@ -51,8 +51,8 @@ export async function processWithDocumentAI(
 
   const normalizedDoc: DocumentAiNormalizedDocument = {
     entities: result.document?.entities?.map(entity => ({
-      type: entity.type,
-      mentionText: entity.mentionText,
+      type: entity.type ?? undefined,
+      mentionText: entity.mentionText ?? undefined,
       confidence: entity.confidence,
       normalizedValue: entity.normalizedValue
         ? {
@@ -62,8 +62,8 @@ export async function processWithDocumentAI(
           }
         : undefined,
       properties: entity.properties?.map(prop => ({
-        type: prop.type,
-        mentionText: prop.mentionText,
+        type: prop.type ?? undefined,
+        mentionText: prop.mentionText ?? undefined,
         confidence: prop.confidence,
         normalizedValue: prop.normalizedValue
           ? {

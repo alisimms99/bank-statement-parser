@@ -25,7 +25,7 @@ export interface CanonicalTransaction {
     end: string | null;
   };
   /** Arbitrary metadata for debugging or downstream enrichment */
-  metadata: Record<string, any>;
+  metadata?: Record<string, any>;
 }
 
 export interface CanonicalDocument {

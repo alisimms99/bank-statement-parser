@@ -45,7 +45,7 @@ export async function tryDocumentAI(fileBuffer: Buffer): Promise<ParsedResult> {
         balance: 1000.25,
         account_id: null,
         source_bank: null,
-        statement_period: { start: null, end: null },
+        statement_period: undefined,
         metadata: { source: "docai_stub", confidence: 0.95 },
       },
       {
@@ -58,7 +58,7 @@ export async function tryDocumentAI(fileBuffer: Buffer): Promise<ParsedResult> {
         balance: 2200.25,
         account_id: null,
         source_bank: null,
-        statement_period: { start: null, end: null },
+        statement_period: undefined,
         metadata: { source: "docai_stub", confidence: 0.98 },
       },
     ];

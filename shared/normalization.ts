@@ -59,10 +59,10 @@ export function normalizeLegacyTransactions(legacy: LegacyTransactionLike[]): Ca
           start: normalizeDateString(item.statement_period.start ?? null),
           end: normalizeDateString(item.statement_period.end ?? null)
         } : undefined,
-        metadata: { raw_type: item.type ?? null }
+        metadata: { raw_type: item.type ?? null } as Record<string, any>
       } satisfies CanonicalTransaction;
     })
-    .filter((t): t is CanonicalTransaction => Boolean(t));
+    .filter((t): t is CanonicalTransaction => t !== null);
 }
 
 export function normalizeDocumentAITransactions(
