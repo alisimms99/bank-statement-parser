@@ -5,6 +5,7 @@ import { processWithDocumentAI, processWithDocumentAIStructured } from "./_core/
 import { getDocumentAiConfig } from "./_core/env";
 import { normalizeLegacyTransactions } from "@shared/normalization";
 import type { CanonicalDocument, CanonicalTransaction } from "@shared/transactions";
+import { storeTransactions } from "./exportRoutes";
 
 // Support both JSON and multipart form data
 const upload = multer({ storage: multer.memoryStorage() });
@@ -133,11 +134,13 @@ export function registerIngestionRoutes(app: Express) {
       }
 
       if (docAIDocument && docAIDocument.transactions.length > 0) {
-        // Document AI succeeded - include processor ID in response for debug panel
+        // Document AI succeeded - store transactions and include export ID
+        const exportId = storeTransactions(docAIDocument.transactions);
         return res.json({ 
           source: "documentai", 
           document: docAIDocument,
           processorId, // Include processor ID for debug panel
+          exportId, // Include export ID for CSV download
         });
       }
 
@@ -158,10 +161,14 @@ export function registerIngestionRoutes(app: Express) {
         rawText: undefined,
       };
 
+      // Store transactions and include export ID
+      const exportId = storeTransactions(legacyTransactions);
+
       return res.json({ 
         source: "legacy", 
         fallback: fallbackReason,
-        document: legacyDoc 
+        document: legacyDoc,
+        exportId, // Include export ID for CSV download
       });
     } catch (error) {
       console.error("Error processing ingestion", { fileName, documentType, error });

@@ -28,6 +28,7 @@ export interface ResultPreviewModalProps {
   transactions: CanonicalTransaction[];
   source: "documentai" | "unavailable" | "error";
   processedFiles: string[];
+  exportId?: string; // UUID for backend CSV export
   statementMetadata?: {
     period?: { start: string | null; end: string | null };
     accountId?: string | null;
@@ -51,20 +52,39 @@ export default function ResultPreviewModal({
   transactions,
   source,
   processedFiles,
+  exportId,
   statementMetadata,
 }: ResultPreviewModalProps) {
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
     if (transactions.length === 0) {
       toast.error("No transactions to export");
       return;
     }
 
-    const csv = toCSV(transactions, { includeBOM: true });
-    const timestamp = new Date().toISOString().split("T")[0];
-    const filename = `bank-transactions-${timestamp}.csv`;
-
-    downloadCSV(csv, filename);
-    toast.success("CSV file downloaded successfully");
+    // Use backend export endpoint if exportId is available
+    if (exportId) {
+      try {
+        const url = `/api/export/${exportId}?bom=true`;
+        // Use window.location for download to trigger browser download
+        window.location.href = url;
+        toast.success("CSV file download started");
+      } catch (error) {
+        console.error("Error downloading CSV from backend", error);
+        toast.error("Failed to download CSV from backend, falling back to client-side export");
+        // Fallback to client-side export
+        const csv = toCSV(transactions, { includeBOM: true });
+        const timestamp = new Date().toISOString().split("T")[0];
+        const filename = `bank-transactions-${timestamp}.csv`;
+        downloadCSV(csv, filename);
+      }
+    } else {
+      // Fallback to client-side export if no exportId
+      const csv = toCSV(transactions, { includeBOM: true });
+      const timestamp = new Date().toISOString().split("T")[0];
+      const filename = `bank-transactions-${timestamp}.csv`;
+      downloadCSV(csv, filename);
+      toast.success("CSV file downloaded successfully");
+    }
   };
 
   // Determine source badge

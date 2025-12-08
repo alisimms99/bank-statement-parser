@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { registerIngestionRoutes } from "../ingestRoutes";
+import { registerExportRoutes } from "../exportRoutes";
 import { applySecurityHeaders, uploadValidationMiddleware } from "../middleware/security";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -38,6 +39,7 @@ async function startServer() {
   app.use(applySecurityHeaders);
   app.use(uploadValidationMiddleware);
   registerIngestionRoutes(app);
+  registerExportRoutes(app);
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   // tRPC API

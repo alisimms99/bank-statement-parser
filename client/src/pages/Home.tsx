@@ -34,6 +34,7 @@ export default function Home() {
   const [showDebug, setShowDebug] = useState(DEBUG_VIEW);
   const [ingestionSource, setIngestionSource] = useState<"documentai" | "unavailable" | "error">("unavailable");
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [exportId, setExportId] = useState<string | undefined>();
   
   // Cache files for retry functionality
   const fileCache = useRef<Map<string, File>>(new Map());
@@ -80,6 +81,10 @@ export default function Home() {
             allCanonical.push(...canonical);
             allTransactions.push(...canonical.map(canonicalToDisplayTransaction));
             fileNames.push(file.name);
+            // Store export ID if available (from backend)
+            if (result.exportId) {
+              setExportId(result.exportId);
+            }
             setStatus(file.name, "normalization", "Normalized to canonical schema", "documentai");
             setStatus(file.name, "export", "Ready for export", "documentai");
             toast.success(`Document AI extracted ${canonical.length} transactions from ${file.name}`);
@@ -132,16 +137,36 @@ export default function Home() {
     toast.info("Pipeline reset. Please upload files again.");
   };
 
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
     if (normalizedTransactions.length === 0) {
       toast.error('No transactions to export');
       return;
     }
 
-    const csv = toCSV(normalizedTransactions, { includeBOM: includeBom });
-    const timestamp = new Date().toISOString().split('T')[0];
-    downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
-    toast.success('CSV file downloaded successfully');
+    // Use backend export endpoint if exportId is available
+    if (exportId) {
+      try {
+        const bomParam = includeBom ? "?bom=true" : "";
+        const url = `/api/export/${exportId}${bomParam}`;
+        
+        // Use window.location for download to trigger browser download
+        window.location.href = url;
+        toast.success('CSV file download started');
+      } catch (error) {
+        console.error("Error downloading CSV from backend", error);
+        toast.error('Failed to download CSV from backend, falling back to client-side export');
+        // Fallback to client-side export
+        const csv = toCSV(normalizedTransactions, { includeBOM: includeBom });
+        const timestamp = new Date().toISOString().split('T')[0];
+        downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
+      }
+    } else {
+      // Fallback to client-side export if no exportId
+      const csv = toCSV(normalizedTransactions, { includeBOM: includeBom });
+      const timestamp = new Date().toISOString().split('T')[0];
+      downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
+      toast.success('CSV file downloaded successfully');
+    }
   };
 
   return (
@@ -335,6 +360,7 @@ export default function Home() {
         open={showPreviewModal}
         onOpenChange={setShowPreviewModal}
         transactions={normalizedTransactions}
+        exportId={exportId}
         source={ingestionSource}
         processedFiles={processedFiles}
       />
