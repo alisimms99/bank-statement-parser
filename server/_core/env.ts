@@ -14,7 +14,11 @@ export const ENV = {
   gcpBankProcessorId: process.env.GCP_BANK_PROCESSOR_ID ?? "",
   gcpInvoiceProcessorId: process.env.GCP_INVOICE_PROCESSOR_ID ?? "",
   gcpOcrProcessorId: process.env.GCP_OCR_PROCESSOR_ID ?? "",
+  gcpFormProcessorId: process.env.GCP_FORM_PROCESSOR_ID ?? "",
   gcpCredentialsJson: process.env.GCP_DOCUMENTAI_CREDENTIALS ?? "",
+  enableDocAi: process.env.ENABLE_DOC_AI === "true",
+  gcpServiceAccountJson: process.env.GCP_SERVICE_ACCOUNT_JSON ?? "",
+  gcpServiceAccountPath: process.env.GCP_SERVICE_ACCOUNT_PATH ?? "",
 };
 
 export type DocumentAiProcessorType = "bank" | "invoice" | "ocr" | "form";
@@ -32,10 +36,10 @@ export interface DocumentAiConfig {
 
 export function getDocumentAiConfig(): DocumentAiConfig {
   const processors: Partial<Record<DocumentAiProcessorType, string>> = {
-    bank: ENV.docAiBankProcessorId || undefined,
-    invoice: ENV.docAiInvoiceProcessorId || undefined,
-    ocr: ENV.docAiOcrProcessorId || undefined,
-    form: ENV.docAiFormProcessorId || undefined,
+    bank: ENV.gcpBankProcessorId || undefined,
+    invoice: ENV.gcpInvoiceProcessorId || undefined,
+    ocr: ENV.gcpOcrProcessorId || undefined,
+    form: ENV.gcpFormProcessorId || undefined,
   };
 
   const credentials = loadServiceAccount();
