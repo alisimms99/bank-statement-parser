@@ -58,4 +58,6 @@ export interface DocumentAiTelemetry {
   entityCount: number;
 }
 
+export type IngestionSource = "documentai" | "legacy" | "error";
+
 export * from "./transactions";

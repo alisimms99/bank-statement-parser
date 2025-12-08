@@ -8,11 +8,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { DocumentAiTelemetry, NormalizedTransaction } from "@shared/types";
+import type { DocumentAiTelemetry, IngestionSource, NormalizedTransaction } from "@shared/types";
 import { RefreshCw } from "lucide-react";
 
 export interface IngestionDebugData {
-  source: "documentai" | "unavailable" | "error";
+  source: IngestionSource;
   normalizedTransactions: NormalizedTransaction[];
   docAiTelemetry?: DocumentAiTelemetry;
   fallbackReason?: string;
@@ -43,13 +43,13 @@ export default function DebugPanel({ ingestionData, onRetry }: DebugPanelProps) 
   // Determine source badge label and variant
   const sourceLabel = source === "documentai" 
     ? "DOC AI PATH" 
-    : source === "unavailable" 
+    : source === "legacy" 
     ? "FALLBACK PATH" 
     : "ERROR";
   
   const sourceVariant = source === "documentai"
     ? "default"
-    : source === "unavailable"
+    : source === "legacy"
     ? "secondary"
     : "destructive";
 

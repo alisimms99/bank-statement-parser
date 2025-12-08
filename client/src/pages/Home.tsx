@@ -15,7 +15,7 @@ import {
 import { ingestWithDocumentAI } from "@/lib/ingestionClient";
 import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
-import type { DocumentAiTelemetry } from "@shared/types";
+import type { DocumentAiTelemetry, IngestionSource } from "@shared/types";
 import { Download, FileText, Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -32,9 +32,10 @@ export default function Home() {
   const [includeBom, setIncludeBom] = useState(true);
   const [fileStatuses, setFileStatuses] = useState<Record<string, FileStatus>>({});
   const [showDebug, setShowDebug] = useState(DEBUG_VIEW);
-  const [ingestionSource, setIngestionSource] = useState<"documentai" | "unavailable" | "error">("unavailable");
+  const [ingestionSource, setIngestionSource] = useState<IngestionSource>("legacy");
   const [docAiTelemetry, setDocAiTelemetry] = useState<DocumentAiTelemetry | null>(null);
-  const [fallbackReason, setFallbackReason] = useState<string | undefined>();
+  const [fallbackReason, setFallbackReason] = useState<string | undefined>(undefined);
+  const [exportId, setExportId] = useState<string | undefined>(undefined);
   
   // Cache files for retry functionality
   const fileCache = useRef<Map<string, File>>(new Map());
@@ -52,10 +53,11 @@ export default function Home() {
     const allTransactions: Transaction[] = [];
     const allCanonical: CanonicalTransaction[] = [];
     const fileNames: string[] = [];
-    let latestSource: "documentai" | "unavailable" | "error" = "unavailable";
+    let latestSource: IngestionSource = "legacy";
 
     setDocAiTelemetry(null);
     setFallbackReason(undefined);
+    setExportId(undefined);
 
     // Cache files for retry
     files.forEach(file => {
@@ -72,6 +74,7 @@ export default function Home() {
           latestSource = result.source;
           setDocAiTelemetry(result.docAiTelemetry ?? null);
           setFallbackReason(result.fallback);
+          setExportId(result.exportId);
 
           if (result.source === "error") {
             const message = result.error ?? "Invalid upload";
@@ -133,9 +136,10 @@ export default function Home() {
     setNormalizedTransactions([]);
     setProcessedFiles([]);
     setFileStatuses({});
-    setIngestionSource("unavailable");
+    setIngestionSource("legacy");
     setDocAiTelemetry(null);
     setFallbackReason(undefined);
+    setExportId(undefined);
     fileCache.current.clear();
     toast.info("Pipeline reset. Please upload files again.");
   };

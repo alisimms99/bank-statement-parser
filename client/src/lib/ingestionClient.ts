@@ -1,12 +1,13 @@
 import type { CanonicalDocument } from "@shared/transactions";
-import type { DocumentAiTelemetry } from "@shared/types";
+import type { DocumentAiTelemetry, IngestionSource } from "@shared/types";
 
 export interface IngestionResult {
   document: CanonicalDocument | null;
-  source: "documentai" | "unavailable" | "error";
+  source: IngestionSource;
   error?: string;
   fallback?: string;
   docAiTelemetry?: DocumentAiTelemetry;
+  exportId?: string;
 }
 
 export async function ingestWithDocumentAI(
@@ -31,9 +32,11 @@ export async function ingestWithDocumentAI(
     if (response.ok && payload.document) {
       return {
         document: payload.document as CanonicalDocument,
-        source: payload.source ?? "documentai",
+        source: (payload.source ?? "documentai") as IngestionSource,
+        error: payload.error,
         fallback: payload.fallback,
         docAiTelemetry: payload.docAiTelemetry as DocumentAiTelemetry | undefined,
+        exportId: payload.exportId,
       };
     }
 
@@ -44,13 +47,21 @@ export async function ingestWithDocumentAI(
 
     return {
       document: null,
-      source: payload.source ?? "unavailable",
+      source: (payload.source ?? "legacy") as IngestionSource,
       error: normalizedError,
       fallback: payload.fallback,
       docAiTelemetry: payload.docAiTelemetry as DocumentAiTelemetry | undefined,
+      exportId: payload.exportId,
     };
   } catch (error: any) {
-    return { document: null, source: "error", error: error?.message ?? "Unknown error" };
+    return {
+      document: null,
+      source: "error" as IngestionSource,
+      error: error?.message ?? "Unknown error",
+      fallback: undefined,
+      docAiTelemetry: undefined,
+      exportId: undefined,
+    };
   }
 }
 

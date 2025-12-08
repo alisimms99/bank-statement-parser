@@ -115,7 +115,11 @@ describe("registerIngestionRoutes", () => {
     expect(res.status).toBe(200);
     expect(res.body.source).toBe("documentai");
     expect(res.body.document.transactions).toHaveLength(sampleCanonicalTransactions.length);
-    expect(res.body.processorId).toBe("test-processor-id");
+    expect(res.body.error).toBeUndefined();
+    expect(res.body.fallback).toBeUndefined();
+    expect(res.body.docAiTelemetry).toBeDefined();
+    expect(res.body.docAiTelemetry.enabled).toBe(true);
+    expect(res.body.exportId).toBeDefined();
     expect(processStructuredMock).toHaveBeenCalled();
   });
 
@@ -140,9 +144,13 @@ describe("registerIngestionRoutes", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.source).toBe("legacy");
-    expect(res.body.fallback).toBe("failed");
+    expect(res.body.document).toBeDefined();
     expect(res.body.document.transactions).toHaveLength(2);
-    expect(res.body.docAiTelemetry).toEqual(sampleTelemetry);
+    expect(res.body.error).toBeUndefined();
+    expect(res.body.fallback).toBe("failed");
+    expect(res.body.docAiTelemetry).toBeDefined();
+    expect(res.body.docAiTelemetry.enabled).toBe(true);
+    expect(res.body.exportId).toBeDefined();
   });
 
   it("uses legacy-only mode when Document AI is disabled", async () => {
@@ -174,7 +182,10 @@ describe("registerIngestionRoutes", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.source).toBe("legacy");
+    expect(res.body.document).toBeDefined();
+    expect(res.body.error).toBeUndefined();
     expect(res.body.fallback).toBe("disabled");
     expect(res.body.docAiTelemetry).toEqual({ enabled: false, processor: null, latencyMs: null, entityCount: 0 });
+    expect(res.body.exportId).toBeDefined();
   });
 });
