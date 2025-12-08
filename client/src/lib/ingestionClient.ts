@@ -9,6 +9,7 @@ export interface IngestionResult {
   error?: string;
   fallback?: string;
   docAiTelemetry?: DocumentAiTelemetry;
+  exportId?: string; // UUID for CSV export endpoint
 }
 
 export async function ingestWithDocumentAI(
@@ -36,6 +37,10 @@ export async function ingestWithDocumentAI(
         source: (payload.source as IngestionSource | undefined) ?? "documentai",
         fallback: payload.fallback,
         docAiTelemetry: payload.docAiTelemetry as DocumentAiTelemetry | undefined,
+      return { 
+        document: payload.document as CanonicalDocument, 
+        source: payload.source ?? "documentai",
+        exportId: payload.exportId, // Capture export ID for CSV download
       };
     }
 

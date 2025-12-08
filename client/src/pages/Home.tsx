@@ -3,6 +3,7 @@ import { Switch } from "@/components/ui/switch";
 import FileUpload from "@/components/FileUpload";
 import TransactionTable from "@/components/TransactionTable";
 import DebugPanel, { type IngestionDebugData } from "@/components/ingestion/DebugPanel";
+import ResultPreviewModal from "@/components/ingestion/ResultPreviewModal";
 import type { FileStatus } from "@/components/ingestion/StepFlow";
 import {
   canonicalToDisplayTransaction,
@@ -17,6 +18,7 @@ import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
 import type { DocumentAiTelemetry } from "@shared/types";
 import { Download, FileText, Loader2 } from "lucide-react";
+import { Download, Eye, FileText, Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -35,6 +37,9 @@ export default function Home() {
   const [ingestionSource, setIngestionSource] = useState<IngestionSource>("legacy");
   const [docAiTelemetry, setDocAiTelemetry] = useState<DocumentAiTelemetry | null>(null);
   const [fallbackReason, setFallbackReason] = useState<string | undefined>(undefined);
+  const [ingestionSource, setIngestionSource] = useState<"documentai" | "unavailable" | "error">("unavailable");
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [exportId, setExportId] = useState<string | undefined>();
   
   // Cache files for retry functionality
   const fileCache = useRef<Map<string, File>>(new Map());
@@ -86,6 +91,10 @@ export default function Home() {
             allCanonical.push(...canonical);
             allTransactions.push(...canonical.map(canonicalToDisplayTransaction));
             fileNames.push(file.name);
+            // Store export ID if available (from backend)
+            if (result.exportId) {
+              setExportId(result.exportId);
+            }
             setStatus(file.name, "normalization", "Normalized to canonical schema", "documentai");
             setStatus(file.name, "export", "Ready for export", "documentai");
             toast.success(`Document AI extracted ${canonical.length} transactions from ${file.name}`);
@@ -140,16 +149,36 @@ export default function Home() {
     toast.info("Pipeline reset. Please upload files again.");
   };
 
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
     if (normalizedTransactions.length === 0) {
       toast.error('No transactions to export');
       return;
     }
 
-    const csv = toCSV(normalizedTransactions, { includeBOM: includeBom });
-    const timestamp = new Date().toISOString().split('T')[0];
-    downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
-    toast.success('CSV file downloaded successfully');
+    // Use backend export endpoint if exportId is available
+    if (exportId) {
+      try {
+        const bomParam = includeBom ? "?bom=true" : "";
+        const url = `/api/export/${exportId}${bomParam}`;
+        
+        // Use window.location for download to trigger browser download
+        window.location.href = url;
+        toast.success('CSV file download started');
+      } catch (error) {
+        console.error("Error downloading CSV from backend", error);
+        toast.error('Failed to download CSV from backend, falling back to client-side export');
+        // Fallback to client-side export
+        const csv = toCSV(normalizedTransactions, { includeBOM: includeBom });
+        const timestamp = new Date().toISOString().split('T')[0];
+        downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
+      }
+    } else {
+      // Fallback to client-side export if no exportId
+      const csv = toCSV(normalizedTransactions, { includeBOM: includeBom });
+      const timestamp = new Date().toISOString().split('T')[0];
+      downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
+      toast.success('CSV file downloaded successfully');
+    }
   };
 
   return (
@@ -273,13 +302,23 @@ export default function Home() {
                       </span>
                     </div>
 
-                    <Button
-                      onClick={handleExportCSV}
-                      className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
-                    >
-                      <Download className="w-4 h-4" />
-                      Export to CSV
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => setShowPreviewModal(true)}
+                        className="gap-2"
+                      >
+                        <Eye className="w-4 h-4" />
+                        Preview Parse Results
+                      </Button>
+                      <Button
+                        onClick={handleExportCSV}
+                        className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
+                      >
+                        <Download className="w-4 h-4" />
+                        Export to CSV
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-border/60 px-3 py-2">
@@ -329,6 +368,16 @@ export default function Home() {
           </div>
         </footer>
       </div>
+
+      {/* Result Preview Modal */}
+      <ResultPreviewModal
+        open={showPreviewModal}
+        onOpenChange={setShowPreviewModal}
+        transactions={normalizedTransactions}
+        exportId={exportId}
+        source={ingestionSource}
+        processedFiles={processedFiles}
+      />
     </div>
   );
 }
