@@ -70,6 +70,16 @@ const sampleDocument: CanonicalDocument = {
 describe("registerIngestionRoutes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset env mock to default (enabled: true)
+    envMock.mockReturnValue({
+      enabled: true,
+      ready: true,
+      credentials: { client_email: "test", private_key: "key" },
+      projectId: "project",
+      location: "us",
+      processors: { bank: "bank" },
+      missing: [],
+    });
   });
 
   afterEach(() => {

@@ -14,18 +14,18 @@ import {
 } from "@/lib/pdfParser";
 import { ingestWithDocumentAI } from "@/lib/ingestionClient";
 import { toCSV } from "@shared/export/csv";
-import type { NormalizedTransaction } from "@shared/types";
+import type { CanonicalTransaction } from "@shared/transactions";
 import { Download, FileText, Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 // Check if debug view is enabled via environment variable
 // Supports both VITE_DEBUG_VIEW (Vite convention) and DEBUG_VIEW (as specified in requirements)
-const DEBUG_VIEW = import.meta.env.VITE_DEBUG_VIEW === "true" || import.meta.env.VITE_DEBUG_VIEW === true;
+const DEBUG_VIEW = import.meta.env.VITE_DEBUG_VIEW === "true";
 
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [normalizedTransactions, setNormalizedTransactions] = useState<NormalizedTransaction[]>([]);
+  const [normalizedTransactions, setNormalizedTransactions] = useState<CanonicalTransaction[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedFiles, setProcessedFiles] = useState<string[]>([]);
   const [includeBom, setIncludeBom] = useState(true);
@@ -47,7 +47,7 @@ export default function Home() {
   const handleFilesSelected = async (files: File[]) => {
     setIsProcessing(true);
     const allTransactions: Transaction[] = [];
-    const allCanonical: NormalizedTransaction[] = [];
+    const allCanonical: CanonicalTransaction[] = [];
     const fileNames: string[] = [];
     let latestSource: "documentai" | "unavailable" | "error" = "unavailable";
 
