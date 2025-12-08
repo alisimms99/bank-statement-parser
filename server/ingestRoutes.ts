@@ -5,6 +5,7 @@ import { processWithDocumentAI, processWithDocumentAIStructured } from "./_core/
 import { getDocumentAiConfig } from "./_core/env";
 import { normalizeLegacyTransactions } from "@shared/normalization";
 import type { CanonicalDocument, CanonicalTransaction } from "@shared/transactions";
+import type { DocumentAiTelemetry } from "@shared/types";
 import { storeTransactions } from "./exportRoutes";
 
 // Support both JSON and multipart form data
@@ -106,12 +107,39 @@ export function registerIngestionRoutes(app: Express) {
 
     const { fileName, buffer, documentType } = parsed;
 
+    // Track Document AI result so we can safely surface telemetry even when using fallbacks
+    let docAiResult: { document: CanonicalDocument | null; telemetry: DocumentAiTelemetry } = {
+      document: null,
+      telemetry: {
+        enabled: false,
+        processor: null,
+        latencyMs: null,
+        entityCount: 0,
+      },
+    };
+
     try {
       // Get config first to check if Document AI is enabled
       const config = getDocumentAiConfig();
       const isDocAIEnabled = config && config.enabled === true;
-      
+
       // Try Document AI first (if enabled)
+      docAiResult = isDocAIEnabled
+        ? await processWithDocumentAI(buffer, documentType)
+        : {
+            document: null,
+            telemetry: {
+              enabled: false,
+              processor: null,
+              latencyMs: null,
+              entityCount: 0,
+            } satisfies DocumentAiTelemetry,
+          };
+
+      if (docAiResult.document && docAiResult.document.transactions.length > 0) {
+        // Document AI succeeded
+        console.log(`[Ingestion] Document AI succeeded for ${fileName}: ${docAiResult.document.transactions.length} transactions`);
+        return res.json({ source: "documentai", document: docAiResult.document, docAiTelemetry: docAiResult.telemetry });
       let docAIDocument: CanonicalDocument | null = null;
       let processorId: string | undefined;
       
@@ -161,6 +189,11 @@ export function registerIngestionRoutes(app: Express) {
         rawText: undefined,
       };
 
+      return res.json({
+        source: "legacy",
+        fallback: fallbackReason,
+        document: legacyDoc,
+        docAiTelemetry: docAiResult.telemetry,
       // Store transactions and include export ID
       const exportId = storeTransactions(legacyTransactions);
 
@@ -172,10 +205,16 @@ export function registerIngestionRoutes(app: Express) {
       });
     } catch (error) {
       console.error("Error processing ingestion", { fileName, documentType, error });
-      return res.status(500).json({ 
-        error: "Failed to ingest document", 
+      return res.status(500).json({
+        error: "Failed to ingest document",
         fallback: "legacy",
-        source: "error"
+        source: "error",
+        docAiTelemetry: {
+          enabled: false,
+          processor: null,
+          latencyMs: null,
+          entityCount: 0,
+        } satisfies DocumentAiTelemetry,
       });
     }
   });

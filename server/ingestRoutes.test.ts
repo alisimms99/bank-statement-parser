@@ -69,6 +69,13 @@ const sampleDocument: CanonicalDocument = {
   rawText: "document ai text",
 };
 
+const sampleTelemetry = {
+  enabled: true,
+  processor: "bank",
+  latencyMs: 150,
+  entityCount: 3,
+};
+
 describe("registerIngestionRoutes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -89,6 +96,7 @@ describe("registerIngestionRoutes", () => {
   });
 
   it("returns Document AI results when enabled and successful", async () => {
+    processMock.mockResolvedValue({ document: sampleDocument, telemetry: sampleTelemetry });
     processStructuredMock.mockResolvedValue({
       success: true,
       document: sampleDocument,
@@ -108,6 +116,14 @@ describe("registerIngestionRoutes", () => {
     expect(res.status).toBe(200);
     expect(res.body.source).toBe("documentai");
     expect(res.body.document.transactions).toHaveLength(sampleCanonicalTransactions.length);
+    expect(res.body.docAiTelemetry).toEqual(sampleTelemetry);
+    expect(processMock).toHaveBeenCalled();
+  });
+
+  it("falls back to legacy when Document AI fails", async () => {
+    processMock.mockResolvedValue({
+      document: null,
+      telemetry: sampleTelemetry,
     expect(res.body.processorId).toBe("test-processor-id");
     expect(processStructuredMock).toHaveBeenCalled();
   });
@@ -135,6 +151,7 @@ describe("registerIngestionRoutes", () => {
     expect(res.body.source).toBe("legacy");
     expect(res.body.fallback).toBe("failed");
     expect(res.body.document.transactions).toHaveLength(2);
+    expect(res.body.docAiTelemetry).toEqual(sampleTelemetry);
   });
 
   it("uses legacy-only mode when Document AI is disabled", async () => {
@@ -147,6 +164,9 @@ describe("registerIngestionRoutes", () => {
       processors: {},
       missing: ["enable"],
     });
+    processMock.mockResolvedValue({
+      document: null,
+      telemetry: { enabled: false, processor: null, latencyMs: null, entityCount: 0 },
     processStructuredMock.mockResolvedValue({
       success: false,
       error: {
@@ -167,5 +187,6 @@ describe("registerIngestionRoutes", () => {
     expect(res.status).toBe(200);
     expect(res.body.source).toBe("legacy");
     expect(res.body.fallback).toBe("disabled");
+    expect(res.body.docAiTelemetry).toEqual({ enabled: false, processor: null, latencyMs: null, entityCount: 0 });
   });
 });
