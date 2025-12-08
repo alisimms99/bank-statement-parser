@@ -28,9 +28,16 @@ export function registerIngestionRoutes(app: Express) {
 
       if (docAIResult.source === "docai" && docAIResult.transactions.length > 0) {
         // Document AI succeeded - return normalized transactions
+        // Convert NormalizedTransaction to CanonicalTransaction by ensuring required fields are present
+        const canonicalTransactions = docAIResult.transactions.map(tx => ({
+          ...tx,
+          statement_period: tx.statement_period ?? { start: null, end: null },
+          metadata: tx.metadata ?? {},
+        }));
+        
         const document: CanonicalDocument = {
           documentType,
-          transactions: docAIResult.transactions,
+          transactions: canonicalTransactions,
           warnings: [],
           rawText: undefined,
         };

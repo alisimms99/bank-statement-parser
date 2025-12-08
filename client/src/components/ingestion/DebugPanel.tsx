@@ -8,12 +8,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { CanonicalTransaction } from "@shared/transactions";
+import type { NormalizedTransaction } from "@shared/types";
 import { RefreshCw } from "lucide-react";
 
 export interface IngestionDebugData {
   source: "documentai" | "unavailable" | "error";
-  normalizedTransactions: CanonicalTransaction[];
+  normalizedTransactions: NormalizedTransaction[];
 }
 
 export interface DebugPanelProps {

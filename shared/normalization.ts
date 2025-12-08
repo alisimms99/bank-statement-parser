@@ -49,7 +49,7 @@ export function normalizeLegacyTransactions(legacy: LegacyTransactionLike[]): Ca
         date: posted_date,
         posted_date,
         description,
-        payee,
+        payee: payee || null,
         debit: amountParts.debit,
         credit: amountParts.credit,
         balance: normalizeNumber(item.balance),
@@ -60,9 +60,9 @@ export function normalizeLegacyTransactions(legacy: LegacyTransactionLike[]): Ca
           end: normalizeDateString(item.statement_period?.end ?? null)
         },
         metadata: { raw_type: item.type ?? null }
-      } satisfies CanonicalTransaction;
+      };
     })
-    .filter((t): t is CanonicalTransaction => Boolean(t));
+    .filter((t) => t !== null) as CanonicalTransaction[];
 }
 
 export function normalizeDocumentAITransactions(
