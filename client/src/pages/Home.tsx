@@ -6,14 +6,12 @@ import DebugPanel, { type IngestionDebugData } from "@/components/ingestion/Debu
 import type { FileStatus } from "@/components/ingestion/StepFlow";
 import {
   canonicalToDisplayTransaction,
-  downloadCSV,
   extractTextFromPDF,
   legacyTransactionsToCanonical,
   parseStatementText,
   Transaction
 } from "@/lib/pdfParser";
 import { ingestWithDocumentAI } from "@/lib/ingestionClient";
-import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
 import { Download, FileText, Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
@@ -130,16 +128,35 @@ export default function Home() {
     toast.info("Pipeline reset. Please upload files again.");
   };
 
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
     if (normalizedTransactions.length === 0) {
       toast.error('No transactions to export');
       return;
     }
 
-    const csv = toCSV(normalizedTransactions, { includeBOM: includeBom });
-    const timestamp = new Date().toISOString().split('T')[0];
-    downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
-    toast.success('CSV file downloaded successfully');
+    try {
+      // First, send transactions to backend to get an export ID
+      const storeResponse = await fetch('/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transactions: normalizedTransactions }),
+      });
+
+      if (!storeResponse.ok) {
+        throw new Error('Failed to prepare export');
+      }
+
+      const { id } = await storeResponse.json();
+
+      // Now trigger the download using the export ID
+      const downloadUrl = `/api/export/${id}?includeBOM=${includeBom}`;
+      window.location.href = downloadUrl;
+
+      toast.success('CSV file download initiated');
+    } catch (error) {
+      console.error('Export failed:', error);
+      toast.error('Failed to export CSV');
+    }
   };
 
   return (
