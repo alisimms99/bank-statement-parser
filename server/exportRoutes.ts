@@ -3,9 +3,15 @@ import { nanoid } from "nanoid";
 import { toCSV } from "@shared/export/csv";
 import type { NormalizedTransaction } from "@shared/types";
 
+// Interface for stored export data with timestamp
+interface StoredExport {
+  transactions: NormalizedTransaction[];
+  timestamp: number;
+}
+
 // In-memory storage for parsed transactions (temporary storage with UUIDs)
 // In production, you might want to use Redis or a proper database
-const transactionStore = new Map<string, NormalizedTransaction[]>();
+const transactionStore = new Map<string, StoredExport>();
 
 // TTL for stored transactions (30 minutes)
 const STORAGE_TTL = 30 * 60 * 1000;
@@ -16,8 +22,7 @@ setInterval(() => {
   const idsToDelete: string[] = [];
   
   transactionStore.forEach((data, id) => {
-    const timestamp = (data as any).__timestamp;
-    if (timestamp && now - timestamp > STORAGE_TTL) {
+    if (now - data.timestamp > STORAGE_TTL) {
       idsToDelete.push(id);
     }
   });
@@ -26,13 +31,26 @@ setInterval(() => {
 }, 5 * 60 * 1000); // Check every 5 minutes
 
 /**
+ * Parse boolean query parameter safely
+ */
+function parseBoolean(value: any): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const lower = value.toLowerCase().trim();
+    return lower === 'true' || lower === '1' || lower === 'yes';
+  }
+  return false;
+}
+
+/**
  * Store transactions and return a UUID for later retrieval
  */
 export function storeTransactions(transactions: NormalizedTransaction[]): string {
   const id = nanoid();
-  const dataWithTimestamp = transactions as any;
-  dataWithTimestamp.__timestamp = Date.now();
-  transactionStore.set(id, transactions);
+  transactionStore.set(id, {
+    transactions,
+    timestamp: Date.now(),
+  });
   return id;
 }
 
@@ -40,7 +58,8 @@ export function storeTransactions(transactions: NormalizedTransaction[]): string
  * Retrieve transactions by UUID
  */
 export function getTransactions(id: string): NormalizedTransaction[] | null {
-  return transactionStore.get(id) || null;
+  const stored = transactionStore.get(id);
+  return stored ? stored.transactions : null;
 }
 
 export function registerExportRoutes(app: Express) {
@@ -69,7 +88,7 @@ export function registerExportRoutes(app: Express) {
   app.get("/api/export/:id", (req, res) => {
     try {
       const { id } = req.params;
-      const includeBOM = req.query.includeBOM === "true";
+      const includeBOM = parseBoolean(req.query.includeBOM);
 
       const transactions = getTransactions(id);
       

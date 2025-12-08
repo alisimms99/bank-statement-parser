@@ -108,6 +108,29 @@ describe("Export Routes", () => {
       expect(exportRes.text).toMatch(/^\uFEFF/);
     });
 
+    it("handles various boolean formats for includeBOM", async () => {
+      const storeRes = await request(app)
+        .post("/api/export")
+        .send({ transactions: sampleTransactions });
+
+      const { id } = storeRes.body;
+
+      // Test "1" as true
+      const res1 = await request(app).get(`/api/export/${id}?includeBOM=1`);
+      expect(res1.status).toBe(200);
+      expect(res1.text).toMatch(/^\uFEFF/);
+
+      // Test "false" as false
+      const res2 = await request(app).get(`/api/export/${id}?includeBOM=false`);
+      expect(res2.status).toBe(200);
+      expect(res2.text).not.toMatch(/^\uFEFF/);
+
+      // Test "True" (mixed case) as true
+      const res3 = await request(app).get(`/api/export/${id}?includeBOM=True`);
+      expect(res3.status).toBe(200);
+      expect(res3.text).toMatch(/^\uFEFF/);
+    });
+
     it("returns 404 for non-existent ID", async () => {
       const res = await request(app).get("/api/export/nonexistent-id");
 
