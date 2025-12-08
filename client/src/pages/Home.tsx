@@ -157,7 +157,7 @@ export default function Home() {
     if (exportId) {
       try {
         const bomParam = includeBom ? "?bom=true" : "";
-        const url = `/api/export/${exportId}${bomParam}`;
+        const url = `/api/export/${exportId}/csv${bomParam}`;
         
         // Use window.location for download to trigger browser download
         window.location.href = url;

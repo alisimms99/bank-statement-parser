@@ -64,7 +64,7 @@ export default function ResultPreviewModal({
     // Use backend export endpoint if exportId is available
     if (exportId) {
       try {
-        const url = `/api/export/${exportId}?bom=true`;
+        const url = `/api/export/${exportId}/csv?bom=true`;
         // Use window.location for download to trigger browser download
         window.location.href = url;
         toast.success("CSV file download started");
