@@ -1,9 +1,12 @@
 import type { CanonicalDocument } from "@shared/transactions";
+import type { DocumentAiTelemetry } from "@shared/types";
 
 export interface IngestionResult {
   document: CanonicalDocument | null;
   source: "documentai" | "unavailable" | "error";
   error?: string;
+  fallback?: string;
+  docAiTelemetry?: DocumentAiTelemetry;
 }
 
 export async function ingestWithDocumentAI(
@@ -26,7 +29,12 @@ export async function ingestWithDocumentAI(
     const payload = await response.json();
 
     if (response.ok && payload.document) {
-      return { document: payload.document as CanonicalDocument, source: payload.source ?? "documentai" };
+      return {
+        document: payload.document as CanonicalDocument,
+        source: payload.source ?? "documentai",
+        fallback: payload.fallback,
+        docAiTelemetry: payload.docAiTelemetry as DocumentAiTelemetry | undefined,
+      };
     }
 
     const normalizedError =
@@ -34,7 +42,13 @@ export async function ingestWithDocumentAI(
         ? payload.error
         : payload.error?.message ?? "Unknown error";
 
-    return { document: null, source: payload.source ?? "unavailable", error: normalizedError };
+    return {
+      document: null,
+      source: payload.source ?? "unavailable",
+      error: normalizedError,
+      fallback: payload.fallback,
+      docAiTelemetry: payload.docAiTelemetry as DocumentAiTelemetry | undefined,
+    };
   } catch (error: any) {
     return { document: null, source: "error", error: error?.message ?? "Unknown error" };
   }

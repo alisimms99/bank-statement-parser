@@ -5,6 +5,7 @@ import { processWithDocumentAI } from "./_core/documentAIClient";
 import { getDocumentAiConfig } from "./_core/env";
 import { normalizeLegacyTransactions } from "@shared/normalization";
 import type { CanonicalDocument, CanonicalTransaction } from "@shared/transactions";
+import type { DocumentAiTelemetry } from "@shared/types";
 
 // Support both JSON and multipart form data
 const upload = multer({ storage: multer.memoryStorage() });
@@ -111,14 +112,22 @@ export function registerIngestionRoutes(app: Express) {
       const isDocAIEnabled = config && config.enabled === true;
       
       // Try Document AI first (if enabled)
-      const docAIDocument = isDocAIEnabled 
+      const docAiResult = isDocAIEnabled
         ? await processWithDocumentAI(buffer, documentType)
-        : null;
+        : {
+            document: null,
+            telemetry: {
+              enabled: false,
+              processor: null,
+              latencyMs: null,
+              entityCount: 0,
+            } satisfies DocumentAiTelemetry,
+          };
 
-      if (docAIDocument && docAIDocument.transactions.length > 0) {
+      if (docAiResult.document && docAiResult.document.transactions.length > 0) {
         // Document AI succeeded
-        console.log(`[Ingestion] Document AI succeeded for ${fileName}: ${docAIDocument.transactions.length} transactions`);
-        return res.json({ source: "documentai", document: docAIDocument });
+        console.log(`[Ingestion] Document AI succeeded for ${fileName}: ${docAiResult.document.transactions.length} transactions`);
+        return res.json({ source: "documentai", document: docAiResult.document, docAiTelemetry: docAiResult.telemetry });
       }
 
       // Document AI failed or disabled - use legacy fallback
@@ -138,17 +147,24 @@ export function registerIngestionRoutes(app: Express) {
         rawText: undefined,
       };
 
-      return res.json({ 
-        source: "legacy", 
+      return res.json({
+        source: "legacy",
         fallback: fallbackReason,
-        document: legacyDoc 
+        document: legacyDoc,
+        docAiTelemetry: docAiResult.telemetry,
       });
     } catch (error) {
       console.error("Error processing ingestion", { fileName, documentType, error });
-      return res.status(500).json({ 
-        error: "Failed to ingest document", 
+      return res.status(500).json({
+        error: "Failed to ingest document",
         fallback: "legacy",
-        source: "error"
+        source: "error",
+        docAiTelemetry: {
+          enabled: false,
+          processor: null,
+          latencyMs: null,
+          entityCount: 0,
+        } satisfies DocumentAiTelemetry,
       });
     }
   });
