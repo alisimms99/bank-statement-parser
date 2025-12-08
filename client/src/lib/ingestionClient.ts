@@ -37,9 +37,6 @@ export async function ingestWithDocumentAI(
         source: (payload.source as IngestionSource | undefined) ?? "documentai",
         fallback: payload.fallback,
         docAiTelemetry: payload.docAiTelemetry as DocumentAiTelemetry | undefined,
-      return { 
-        document: payload.document as CanonicalDocument, 
-        source: payload.source ?? "documentai",
         exportId: payload.exportId, // Capture export ID for CSV download
       };
     }
@@ -57,7 +54,14 @@ export async function ingestWithDocumentAI(
       docAiTelemetry: payload.docAiTelemetry as DocumentAiTelemetry | undefined,
     };
   } catch (error: any) {
-    return { document: null, source: "error", error: error?.message ?? "Unknown error" };
+    return {
+      document: null,
+      source: "error" as IngestionSource,
+      error: error?.message ?? "Unknown error",
+      fallback: undefined,
+      docAiTelemetry: undefined,
+      exportId: undefined,
+    };
   }
 }
 

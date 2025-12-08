@@ -26,7 +26,7 @@ export interface ResultPreviewModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   transactions: CanonicalTransaction[];
-  source: "documentai" | "unavailable" | "error";
+  source: "documentai" | "legacy" | "error";
   processedFiles: string[];
   exportId?: string; // UUID for backend CSV export
   statementMetadata?: {
@@ -91,14 +91,14 @@ export default function ResultPreviewModal({
   const sourceLabel =
     source === "documentai"
       ? "Document AI"
-      : source === "unavailable"
+      : source === "legacy"
         ? "Legacy Parser"
         : "Error";
 
   const sourceVariant =
     source === "documentai"
       ? "default"
-      : source === "unavailable"
+      : source === "legacy"
         ? "secondary"
         : "destructive";
 

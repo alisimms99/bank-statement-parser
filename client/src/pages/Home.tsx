@@ -17,7 +17,6 @@ import { ingestWithDocumentAI, type IngestionSource } from "@/lib/ingestionClien
 import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
 import type { DocumentAiTelemetry } from "@shared/types";
-import { Download, FileText, Loader2 } from "lucide-react";
 import { Download, Eye, FileText, Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -37,7 +36,6 @@ export default function Home() {
   const [ingestionSource, setIngestionSource] = useState<IngestionSource>("legacy");
   const [docAiTelemetry, setDocAiTelemetry] = useState<DocumentAiTelemetry | null>(null);
   const [fallbackReason, setFallbackReason] = useState<string | undefined>(undefined);
-  const [ingestionSource, setIngestionSource] = useState<"documentai" | "unavailable" | "error">("unavailable");
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [exportId, setExportId] = useState<string | undefined>();
   
