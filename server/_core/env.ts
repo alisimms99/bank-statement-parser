@@ -71,9 +71,29 @@ export function getDocumentAiConfig(): DocumentAiConfig {
 }
 
 function loadServiceAccount(): Record<string, unknown> | null {
+  // Try GCP_SERVICE_ACCOUNT_JSON first (base64 or plain JSON)
+  if (ENV.gcpServiceAccountJson) {
+    const parsed = tryParseJson(ENV.gcpServiceAccountJson);
+    if (parsed) return parsed;
+  }
+
+  // Try GCP_DOCUMENTAI_CREDENTIALS (legacy/env var name)
   if (ENV.gcpCredentialsJson) {
     const parsed = tryParseJson(ENV.gcpCredentialsJson);
     if (parsed) return parsed;
+  }
+
+  // Try GCP_SERVICE_ACCOUNT_PATH (file path)
+  if (ENV.gcpServiceAccountPath) {
+    try {
+      if (fs.existsSync(ENV.gcpServiceAccountPath)) {
+        const content = fs.readFileSync(ENV.gcpServiceAccountPath, "utf8");
+        const parsed = tryParseJson(content);
+        if (parsed) return parsed;
+      }
+    } catch (error) {
+      console.warn("Failed to read GCP service account file", error);
+    }
   }
 
   return null;
