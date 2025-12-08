@@ -15,13 +15,18 @@ import {
 import { ingestWithDocumentAI } from "@/lib/ingestionClient";
 import { toCSV } from "@shared/export/csv";
 import type { NormalizedTransaction } from "@shared/types";
+import type { IngestionFailure } from "@shared/ingestion-errors";
+import { createIngestionFailure } from "@shared/ingestion-errors";
 import { Download, FileText, Loader2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { toast } from "sonner";
 
 // Check if debug view is enabled via environment variable
 // Supports both VITE_DEBUG_VIEW (Vite convention) and DEBUG_VIEW (as specified in requirements)
 const DEBUG_VIEW = import.meta.env.VITE_DEBUG_VIEW === "true" || import.meta.env.VITE_DEBUG_VIEW === true;
+
+// LocalStorage key for persisting ingestion failures
+const FAILURES_STORAGE_KEY = "ingestion_failures";
 
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -32,9 +37,37 @@ export default function Home() {
   const [fileStatuses, setFileStatuses] = useState<Record<string, FileStatus>>({});
   const [showDebug, setShowDebug] = useState(DEBUG_VIEW);
   const [ingestionSource, setIngestionSource] = useState<"documentai" | "unavailable" | "error">("unavailable");
+  const [ingestionFailures, setIngestionFailures] = useState<IngestionFailure[]>([]);
   
   // Cache files for retry functionality
   const fileCache = useRef<Map<string, File>>(new Map());
+
+  // Load persisted failures from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(FAILURES_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as IngestionFailure[];
+        setIngestionFailures(parsed);
+      }
+    } catch (error) {
+      console.error("Failed to load persisted failures:", error);
+    }
+  }, []);
+
+  // Persist failures to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem(FAILURES_STORAGE_KEY, JSON.stringify(ingestionFailures));
+    } catch (error) {
+      console.error("Failed to persist failures:", error);
+    }
+  }, [ingestionFailures]);
+
+  // Helper function to add a failure to the log
+  const logFailure = (failure: IngestionFailure) => {
+    setIngestionFailures(prev => [...prev, failure]);
+  };
 
   // Helper function to update file status
   const setStatus = (fileName: string, phase: FileStatus["phase"], message: string, source: FileStatus["source"]) => {
@@ -69,6 +102,15 @@ export default function Home() {
             const message = result.error ?? "Invalid upload";
             toast.error(message);
             setStatus(file.name, "error", message, "error");
+            
+            // Log upload failure
+            logFailure(createIngestionFailure(
+              "upload",
+              message,
+              "Check file format and size. Only PDF files under 25MB are supported.",
+              file.name,
+              "UPLOAD_ERROR"
+            ));
             continue;
           }
 
@@ -84,20 +126,73 @@ export default function Home() {
             continue;
           }
 
+          // Document AI fallback scenario
           setStatus(file.name, "extraction", "Document AI unavailable, using legacy parser", "legacy");
-          const text = await extractTextFromPDF(file);
-          const parsedTransactions = parseStatementText(text);
-          const canonical = legacyTransactionsToCanonical(parsedTransactions);
+          
+          // Log DocAI fallback (not a hard failure, but worth tracking)
+          logFailure(createIngestionFailure(
+            "docai",
+            "Document AI returned no transactions",
+            "Falling back to legacy parser. Check Document AI configuration if this persists.",
+            file.name,
+            "DOCAI_NO_RESULTS"
+          ));
 
-          allTransactions.push(...canonical.map(canonicalToDisplayTransaction));
-          allCanonical.push(...canonical);
-          fileNames.push(file.name);
+          try {
+            const text = await extractTextFromPDF(file);
+            const parsedTransactions = parseStatementText(text);
+            
+            if (parsedTransactions.length === 0) {
+              // Log normalization failure
+              logFailure(createIngestionFailure(
+                "normalization",
+                "No transactions found in PDF",
+                "The PDF may not contain a recognized bank statement format.",
+                file.name,
+                "NORMALIZATION_EMPTY"
+              ));
+              toast.warning(`No transactions found in ${file.name}`);
+              continue;
+            }
 
-          setStatus(file.name, "normalization", "Legacy normalization complete", "legacy");
-          setStatus(file.name, "export", "Ready for export", "legacy");
-          toast.success(`Extracted ${parsedTransactions.length} transactions from ${file.name}`);
+            const canonical = legacyTransactionsToCanonical(parsedTransactions);
+
+            allTransactions.push(...canonical.map(canonicalToDisplayTransaction));
+            allCanonical.push(...canonical);
+            fileNames.push(file.name);
+
+            setStatus(file.name, "normalization", "Legacy normalization complete", "legacy");
+            setStatus(file.name, "export", "Ready for export", "legacy");
+            toast.success(`Extracted ${parsedTransactions.length} transactions from ${file.name}`);
+          } catch (normError) {
+            console.error(`Normalization error for ${file.name}:`, normError);
+            const errorMessage = normError instanceof Error ? normError.message : "Failed to normalize transactions";
+            
+            // Log normalization failure
+            logFailure(createIngestionFailure(
+              "normalization",
+              errorMessage,
+              "The PDF format may not be supported. Try a different bank statement.",
+              file.name,
+              "NORMALIZATION_ERROR"
+            ));
+            
+            toast.error(`Failed to normalize ${file.name}`);
+            setStatus(file.name, "error", errorMessage, "error");
+          }
         } catch (error) {
           console.error(`Error processing ${file.name}:`, error);
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          
+          // Log general processing failure
+          logFailure(createIngestionFailure(
+            "upload",
+            errorMessage,
+            "An unexpected error occurred. Check console for details.",
+            file.name,
+            "PROCESSING_ERROR"
+          ));
+          
           toast.error(`Failed to process ${file.name}`);
           setStatus(file.name, "error", "Failed to process file", "error");
         }
@@ -113,6 +208,17 @@ export default function Home() {
       }
     } catch (error) {
       console.error("Error processing files:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      
+      // Log batch processing failure
+      logFailure(createIngestionFailure(
+        "upload",
+        `Batch processing failed: ${errorMessage}`,
+        "Try uploading files one at a time.",
+        undefined,
+        "BATCH_ERROR"
+      ));
+      
       toast.error("An error occurred while processing files");
     } finally {
       setIsProcessing(false);
@@ -127,6 +233,7 @@ export default function Home() {
     setFileStatuses({});
     setIngestionSource("unavailable");
     fileCache.current.clear();
+    // Note: We intentionally keep ingestionFailures for historical tracking
     toast.info("Pipeline reset. Please upload files again.");
   };
 
@@ -136,10 +243,26 @@ export default function Home() {
       return;
     }
 
-    const csv = toCSV(normalizedTransactions, { includeBOM: includeBom });
-    const timestamp = new Date().toISOString().split('T')[0];
-    downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
-    toast.success('CSV file downloaded successfully');
+    try {
+      const csv = toCSV(normalizedTransactions, { includeBOM: includeBom });
+      const timestamp = new Date().toISOString().split('T')[0];
+      downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
+      toast.success('CSV file downloaded successfully');
+    } catch (error) {
+      console.error("Export error:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      
+      // Log export failure
+      logFailure(createIngestionFailure(
+        "export",
+        `CSV export failed: ${errorMessage}`,
+        "Try exporting again or check console for details.",
+        undefined,
+        "EXPORT_ERROR"
+      ));
+      
+      toast.error('Failed to export CSV');
+    }
   };
 
   return (
@@ -237,11 +360,12 @@ export default function Home() {
             </div>
 
             {/* Debug Panel */}
-            {showDebug && normalizedTransactions.length > 0 && (
+            {showDebug && (normalizedTransactions.length > 0 || ingestionFailures.length > 0) && (
               <DebugPanel
                 ingestionData={{
                   source: ingestionSource,
                   normalizedTransactions,
+                  failures: ingestionFailures,
                 }}
                 onRetry={handleRetry}
               />
@@ -299,23 +423,13 @@ export default function Home() {
                     No statements uploaded yet
                   </h3>
                   <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                    Upload your bank statement PDFs to extract transaction data. 
-                    The app supports batch processing of multiple files.
+                    Upload one or more PDF bank statements to extract transactions and export to CSV for QuickBooks.
                   </p>
                 </div>
               </div>
             )}
           </div>
         </main>
-
-        {/* Footer */}
-        <footer className="border-t border-border/50 backdrop-blur-md bg-background/30 mt-20">
-          <div className="container mx-auto px-6 py-6">
-            <p className="text-center text-sm text-muted-foreground">
-              Supports Citizens Bank statement format. CSV output compatible with QuickBooks.
-            </p>
-          </div>
-        </footer>
       </div>
     </div>
   );
