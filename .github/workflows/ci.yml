@@ -12,6 +12,8 @@ jobs:
   ci:
     name: Typecheck and Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout repository
