@@ -3,6 +3,7 @@ import { Switch } from "@/components/ui/switch";
 import FileUpload from "@/components/FileUpload";
 import TransactionTable from "@/components/TransactionTable";
 import DebugPanel, { type IngestionDebugData } from "@/components/ingestion/DebugPanel";
+import ResultPreviewModal from "@/components/ingestion/ResultPreviewModal";
 import type { FileStatus } from "@/components/ingestion/StepFlow";
 import {
   canonicalToDisplayTransaction,
@@ -15,7 +16,7 @@ import {
 import { ingestWithDocumentAI } from "@/lib/ingestionClient";
 import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
-import { Download, FileText, Loader2 } from "lucide-react";
+import { Download, Eye, FileText, Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -32,6 +33,7 @@ export default function Home() {
   const [fileStatuses, setFileStatuses] = useState<Record<string, FileStatus>>({});
   const [showDebug, setShowDebug] = useState(DEBUG_VIEW);
   const [ingestionSource, setIngestionSource] = useState<"documentai" | "unavailable" | "error">("unavailable");
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
   
   // Cache files for retry functionality
   const fileCache = useRef<Map<string, File>>(new Map());
@@ -261,13 +263,23 @@ export default function Home() {
                       </span>
                     </div>
 
-                    <Button
-                      onClick={handleExportCSV}
-                      className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
-                    >
-                      <Download className="w-4 h-4" />
-                      Export to CSV
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => setShowPreviewModal(true)}
+                        className="gap-2"
+                      >
+                        <Eye className="w-4 h-4" />
+                        Preview Parse Results
+                      </Button>
+                      <Button
+                        onClick={handleExportCSV}
+                        className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
+                      >
+                        <Download className="w-4 h-4" />
+                        Export to CSV
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-border/60 px-3 py-2">
@@ -317,6 +329,15 @@ export default function Home() {
           </div>
         </footer>
       </div>
+
+      {/* Result Preview Modal */}
+      <ResultPreviewModal
+        open={showPreviewModal}
+        onOpenChange={setShowPreviewModal}
+        transactions={normalizedTransactions}
+        source={ingestionSource}
+        processedFiles={processedFiles}
+      />
     </div>
   );
 }
