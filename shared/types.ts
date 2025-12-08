@@ -40,13 +40,19 @@ export interface NormalizedTransaction {
   
   /** Source bank name (null if not available) */
   source_bank: string | null;
-  
+
   /** Statement period information (optional) */
   statement_period?: {
     start: string | null;
     end: string | null;
   };
-  
+
+  /** Optional ending balance pulled from statement summaries */
+  ending_balance?: number | null;
+
+  /** AI- or parser-inferred description when raw text is missing */
+  inferred_description?: string | null;
+
   /** Additional metadata (e.g., edited flag, parsing source, etc.) */
   metadata?: Record<string, any>;
 }
