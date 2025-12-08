@@ -17,6 +17,8 @@ export const ENV = {
   gcpFormProcessorId: process.env.GCP_FORM_PROCESSOR_ID ?? "",
   gcpCredentialsJson: process.env.GCP_DOCUMENTAI_CREDENTIALS ?? "",
   enableDocAi: process.env.ENABLE_DOC_AI === "true",
+  gcpServiceAccountJson: process.env.GCP_SERVICE_ACCOUNT_JSON ?? "",
+  gcpServiceAccountPath: process.env.GCP_SERVICE_ACCOUNT_PATH ?? "",
 };
 
 export type DocumentAiProcessorType = "bank" | "invoice" | "ocr" | "form";

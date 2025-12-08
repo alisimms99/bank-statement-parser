@@ -36,17 +36,16 @@ export interface LegacyTransactionLike {
 }
 
 export function normalizeLegacyTransactions(legacy: LegacyTransactionLike[]): CanonicalTransaction[] {
-  const results: CanonicalTransaction[] = [];
-  
-  for (const item of legacy) {
+  const results: (CanonicalTransaction | null)[] = legacy.map(item => {
     const description = collapseWhitespace(item.description);
-    const payee = collapseWhitespace(item.payee ?? "") || description;
+    const payeeRaw = collapseWhitespace(item.payee ?? "") || description;
+    const payee: string | null = payeeRaw.length > 0 ? payeeRaw : null;
     const amountParts = normalizeAmount(item.amount, item.directionHint);
     const posted_date = normalizeDateString(item.date);
 
-    if (!amountParts || (!amountParts.debit && !amountParts.credit)) continue;
+    if (!amountParts || (!amountParts.debit && !amountParts.credit)) return null;
 
-    results.push({
+    return {
       date: posted_date,
       posted_date,
       description,
@@ -61,10 +60,10 @@ export function normalizeLegacyTransactions(legacy: LegacyTransactionLike[]): Ca
         end: normalizeDateString(item.statement_period?.end ?? null)
       },
       metadata: { raw_type: item.type ?? null }
-    });
-  }
+    } satisfies CanonicalTransaction;
+  });
   
-  return results;
+  return results.filter((t): t is CanonicalTransaction => t !== null);
 }
 
 export function normalizeDocumentAITransactions(
