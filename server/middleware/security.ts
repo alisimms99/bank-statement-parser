@@ -82,42 +82,59 @@ export function uploadValidationMiddleware(req: Request, res: Response, next: Ne
     return next();
   }
 
-  const { contentBase64, fileName } = req.body ?? {};
+  // Support both multipart (file) and JSON (contentBase64) formats
+  let buffer: Buffer | null = null;
+  let fileName: string | undefined;
 
-  if (typeof contentBase64 !== "string" || contentBase64.trim().length === 0) {
-    return sendUploadError(res, 400, "missing_payload", "Missing upload payload");
+  // Check for multipart file upload first
+  if (req.file) {
+    buffer = req.file.buffer;
+    fileName = req.file.originalname;
+  } else {
+    // Check for JSON body with contentBase64
+    const { contentBase64 } = req.body ?? {};
+    
+    if (typeof contentBase64 !== "string" || contentBase64.trim().length === 0) {
+      // If no file and no contentBase64, let the route handler deal with it
+      // (it will return a proper error message)
+      return next();
+    }
+
+    try {
+      buffer = Buffer.from(contentBase64, "base64");
+    } catch (error) {
+      return sendUploadError(res, 400, "invalid_base64", "Upload payload is not valid Base64");
+    }
+
+    fileName = req.body?.fileName;
   }
 
-  let buffer: Buffer;
-  try {
-    buffer = Buffer.from(contentBase64, "base64");
-  } catch (error) {
-    return sendUploadError(res, 400, "invalid_base64", "Upload payload is not valid Base64");
-  }
+  // If we have a buffer, validate it
+  if (buffer) {
+    if (buffer.length === 0) {
+      return sendUploadError(res, 400, "empty_payload", "Upload payload cannot be empty");
+    }
 
-  if (buffer.length === 0) {
-    return sendUploadError(res, 400, "empty_payload", "Upload payload cannot be empty");
-  }
+    if (buffer.length > MAX_UPLOAD_BYTES) {
+      return sendUploadError(
+        res,
+        413,
+        "payload_too_large",
+        "File exceeds the 25MB upload limit",
+        `limit=${MAX_UPLOAD_BYTES}, received=${buffer.length}`
+      );
+    }
 
-  if (buffer.length > MAX_UPLOAD_BYTES) {
-    return sendUploadError(
-      res,
-      413,
-      "payload_too_large",
-      "File exceeds the 25MB upload limit",
-      `limit=${MAX_UPLOAD_BYTES}, received=${buffer.length}`
-    );
-  }
-
-  const signature = buffer.slice(0, PDF_SIGNATURE.length).toString("utf8");
-  if (!signature.startsWith(PDF_SIGNATURE)) {
-    return sendUploadError(
-      res,
-      415,
-      "invalid_file_type",
-      "Only PDF uploads are accepted",
-      `file=${fileName ?? "unnamed"}, signature=${signature || "<empty>"}`
-    );
+    const signature = buffer.slice(0, PDF_SIGNATURE.length).toString("utf8");
+    if (!signature.startsWith(PDF_SIGNATURE)) {
+      return sendUploadError(
+        res,
+        415,
+        "invalid_file_type",
+        "Only PDF uploads are accepted",
+        `file=${fileName ?? "unnamed"}, signature=${signature || "<empty>"}`
+      );
+    }
   }
 
   return next();
