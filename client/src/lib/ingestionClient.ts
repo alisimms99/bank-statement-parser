@@ -4,6 +4,7 @@ export interface IngestionResult {
   document: CanonicalDocument | null;
   source: "documentai" | "unavailable" | "error";
   error?: string;
+  exportId?: string; // UUID for CSV export endpoint
 }
 
 export async function ingestWithDocumentAI(
@@ -26,7 +27,11 @@ export async function ingestWithDocumentAI(
     const payload = await response.json();
 
     if (response.ok && payload.document) {
-      return { document: payload.document as CanonicalDocument, source: payload.source ?? "documentai" };
+      return { 
+        document: payload.document as CanonicalDocument, 
+        source: payload.source ?? "documentai",
+        exportId: payload.exportId, // Capture export ID for CSV download
+      };
     }
 
     const normalizedError =
