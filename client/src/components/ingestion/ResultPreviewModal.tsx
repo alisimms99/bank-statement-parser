@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { downloadCSV } from "@/lib/pdfParser";
 import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
 import { Download, FileText, Info } from "lucide-react";
@@ -62,19 +63,7 @@ export default function ResultPreviewModal({
     const timestamp = new Date().toISOString().split("T")[0];
     const filename = `bank-transactions-${timestamp}.csv`;
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-
-    link.setAttribute("href", url);
-    link.setAttribute("download", filename);
-    link.style.visibility = "hidden";
-
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    URL.revokeObjectURL(url);
+    downloadCSV(csv, filename);
     toast.success("CSV file downloaded successfully");
   };
 
