@@ -15,6 +15,15 @@ export const ENV = {
   gcpInvoiceProcessorId: process.env.GCP_INVOICE_PROCESSOR_ID ?? "",
   gcpOcrProcessorId: process.env.GCP_OCR_PROCESSOR_ID ?? "",
   gcpCredentialsJson: process.env.GCP_DOCUMENTAI_CREDENTIALS ?? "",
+  // Document AI processor IDs (alternative naming)
+  docAiBankProcessorId: process.env.DOC_AI_BANK_PROCESSOR_ID ?? process.env.GCP_BANK_PROCESSOR_ID ?? "",
+  docAiInvoiceProcessorId: process.env.DOC_AI_INVOICE_PROCESSOR_ID ?? process.env.GCP_INVOICE_PROCESSOR_ID ?? "",
+  docAiOcrProcessorId: process.env.DOC_AI_OCR_PROCESSOR_ID ?? process.env.GCP_OCR_PROCESSOR_ID ?? "",
+  docAiFormProcessorId: process.env.DOC_AI_FORM_PROCESSOR_ID ?? "",
+  // Document AI configuration
+  enableDocAi: process.env.ENABLE_DOC_AI === "true" || process.env.ENABLE_DOCUMENT_AI === "true",
+  gcpServiceAccountJson: process.env.GCP_SERVICE_ACCOUNT_JSON ?? process.env.GCP_DOCUMENTAI_CREDENTIALS ?? "",
+  gcpServiceAccountPath: process.env.GCP_SERVICE_ACCOUNT_PATH ?? "",
 };
 
 export type DocumentAiProcessorType = "bank" | "invoice" | "ocr" | "form";

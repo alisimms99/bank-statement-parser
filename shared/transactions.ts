@@ -20,7 +20,7 @@ export interface CanonicalTransaction {
   /** Source bank or issuer name */
   source_bank: string | null;
   /** Statement period details */
-  statement_period: {
+  statement_period?: {
     start: string | null;
     end: string | null;
   };

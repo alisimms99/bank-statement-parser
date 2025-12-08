@@ -55,10 +55,10 @@ export function normalizeLegacyTransactions(legacy: LegacyTransactionLike[]): Ca
         balance: normalizeNumber(item.balance),
         account_id: item.account_id ?? null,
         source_bank: item.source_bank ?? null,
-        statement_period: {
-          start: normalizeDateString(item.statement_period?.start ?? null),
-          end: normalizeDateString(item.statement_period?.end ?? null)
-        },
+        statement_period: item.statement_period ? {
+          start: normalizeDateString(item.statement_period.start ?? null),
+          end: normalizeDateString(item.statement_period.end ?? null)
+        } : undefined,
         metadata: { raw_type: item.type ?? null }
       } satisfies CanonicalTransaction;
     })
@@ -99,7 +99,7 @@ export function normalizeDocumentAITransactions(
       balance: normalizeNumber(balanceEntity?.mentionText),
       account_id: null,
       source_bank: null,
-      statement_period: { start: null, end: null },
+      statement_period: undefined,
       metadata: {
         documentai: {
           type: entity.type,
