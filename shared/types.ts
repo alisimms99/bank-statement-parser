@@ -51,4 +51,11 @@ export interface NormalizedTransaction {
   metadata?: Record<string, any>;
 }
 
+export interface DocumentAiTelemetry {
+  enabled: boolean;
+  processor: string | null;
+  latencyMs: number | null;
+  entityCount: number;
+}
+
 export * from "./transactions";

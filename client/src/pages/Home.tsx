@@ -32,6 +32,8 @@ export default function Home() {
   const [fileStatuses, setFileStatuses] = useState<Record<string, FileStatus>>({});
   const [showDebug, setShowDebug] = useState(DEBUG_VIEW);
   const [ingestionSource, setIngestionSource] = useState<"documentai" | "unavailable" | "error">("unavailable");
+  const [docAiTelemetry, setDocAiTelemetry] = useState<any>(null);
+  const [fallbackReason, setFallbackReason] = useState<any>(undefined);
   
   // Cache files for retry functionality
   const fileCache = useRef<Map<string, File>>(new Map());
@@ -51,6 +53,9 @@ export default function Home() {
     const fileNames: string[] = [];
     let latestSource: "documentai" | "unavailable" | "error" = "unavailable";
 
+    setDocAiTelemetry(null);
+    setFallbackReason(undefined);
+
     // Cache files for retry
     files.forEach(file => {
       fileCache.current.set(file.name, file);
@@ -64,6 +69,8 @@ export default function Home() {
         try {
           const result = await ingestWithDocumentAI(file, "bank_statement");
           latestSource = result.source;
+          setDocAiTelemetry(result.docAiTelemetry ?? null);
+          setFallbackReason(result.fallback);
 
           if (result.source === "error") {
             const message = result.error ?? "Invalid upload";
@@ -126,6 +133,8 @@ export default function Home() {
     setProcessedFiles([]);
     setFileStatuses({});
     setIngestionSource("unavailable");
+    setDocAiTelemetry(null);
+    setFallbackReason(undefined);
     fileCache.current.clear();
     toast.info("Pipeline reset. Please upload files again.");
   };
@@ -242,6 +251,8 @@ export default function Home() {
                 ingestionData={{
                   source: ingestionSource,
                   normalizedTransactions,
+                  docAiTelemetry: docAiTelemetry ?? undefined,
+                  fallbackReason,
                 }}
                 onRetry={handleRetry}
               />
