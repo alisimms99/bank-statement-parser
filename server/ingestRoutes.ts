@@ -1,55 +1,79 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
+import multer from "multer";
 import { z } from "zod";
-import { tryDocumentAI } from "./core/documentAIClient";
-import { normalizeLegacyTransactions } from "@shared/normalization";
+
+import { processWithDocumentAI } from "./_core/documentAIClient";
+import { getDocumentAiConfig } from "./_core/env";
+import { legacyTransactionsToCanonical, parseStatementText } from "../client/src/lib/pdfParser";
 import type { CanonicalDocument } from "@shared/transactions";
 
-const ingestSchema = z.object({
-  fileName: z.string(),
-  contentBase64: z.string(),
-  documentType: z.enum(["bank_statement", "invoice", "receipt"]).default("bank_statement"),
-});
+const upload = multer({ storage: multer.memoryStorage() });
+
+const documentTypeSchema = z.enum(["bank_statement", "invoice", "receipt"]);
+
+function extractUpload(req: Request): { buffer: Buffer; fileName: string } | null {
+  if (req.file?.buffer) {
+    return { buffer: req.file.buffer, fileName: req.file.originalname ?? "upload.pdf" };
+  }
+
+  const { contentBase64, fileName } = req.body ?? {};
+  if (typeof contentBase64 === "string" && contentBase64.trim().length > 0) {
+    try {
+      return { buffer: Buffer.from(contentBase64, "base64"), fileName: fileName ?? "upload.pdf" };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  return null;
+}
 
 export function registerIngestionRoutes(app: Express) {
-  app.post("/api/ingest", async (req, res) => {
-    const parsed = ingestSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+  app.post("/api/ingest", upload.single("file"), async (req, res) => {
+    const upload = extractUpload(req);
+    if (!upload) {
+      return res.status(400).json({ error: "Invalid request", details: "Missing upload payload" });
     }
 
-    const { fileName, contentBase64, documentType } = parsed.data;
+    const parseResult = documentTypeSchema.safeParse(req.body?.documentType ?? "bank_statement");
+    if (!parseResult.success) {
+      return res.status(400).json({ error: "Invalid request", details: parseResult.error.flatten() });
+    }
+
+    const documentType = parseResult.data;
+    const { buffer, fileName } = upload;
 
     try {
-      const buffer = Buffer.from(contentBase64, "base64");
-      
-      // Try Document AI stub first
-      const docAIResult = await tryDocumentAI(buffer);
+      const docAiConfig = getDocumentAiConfig();
 
-      if (docAIResult.source === "docai" && docAIResult.transactions.length > 0) {
-        // Document AI succeeded - return normalized transactions
-        const document: CanonicalDocument = {
-          documentType,
-          transactions: docAIResult.transactions,
-          warnings: [],
-          rawText: undefined,
-        };
-
-        console.log(`[Ingestion] Document AI succeeded for ${fileName}: ${docAIResult.transactions.length} transactions`);
-        return res.json({ source: "documentai", document });
+      if (docAiConfig.enabled) {
+        const docAIResult = await processWithDocumentAI(buffer, documentType);
+        if (docAIResult) {
+          console.log(
+            `[Ingestion] Document AI succeeded for ${fileName}: ${docAIResult.transactions.length} transactions`
+          );
+          return res.status(200).json({ source: "documentai", document: docAIResult });
+        }
       }
 
-      // Document AI failed or returned no transactions - signal fallback needed
-      console.log(`[Ingestion] Document AI fallback triggered for ${fileName}`);
-      
+      const fallbackReason = docAiConfig.enabled ? "failed" : "disabled";
+      const rawText = buffer.toString("utf8");
+      const legacyTransactions = parseStatementText(rawText);
+      const canonicalTransactions = legacyTransactionsToCanonical(legacyTransactions);
+
       const legacyDoc: CanonicalDocument = {
         documentType,
-        transactions: normalizeLegacyTransactions([]),
-        warnings: ["Document AI unavailable; client fallback required"],
-        rawText: undefined,
+        transactions: canonicalTransactions,
+        warnings:
+          fallbackReason === "failed"
+            ? ["Document AI unavailable; legacy parser used"]
+            : ["Document AI disabled; legacy parser used"],
+        rawText,
       };
 
-      return res.status(503).json({ source: "fallback", document: legacyDoc });
+      console.log(`[Ingestion] Document AI fallback triggered for ${fileName} (${fallbackReason})`);
+
+      return res.status(200).json({ source: "legacy", fallback: fallbackReason, document: legacyDoc });
     } catch (error) {
       console.error("Error processing ingestion", { fileName, documentType, error });
       return res.status(500).json({ error: "Failed to ingest document", fallback: "legacy" });
