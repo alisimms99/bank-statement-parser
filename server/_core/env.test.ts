@@ -38,13 +38,16 @@ describe("getDocumentAiConfig", () => {
   it("recognizes credentials from any source", () => {
     const config = getDocumentAiConfig();
     
-    // If any credential env var is set, config should have credentials
-    const hasCredentialEnv = ENV.gcpCredentialsJson || ENV.gcpServiceAccountJson || ENV.gcpServiceAccountPath;
+    // Verify that if credentials are present in config, at least one source env var was set
+    // This is a sanity check that the credential loading logic works
+    if (config.credentials) {
+      const hasCredentialEnv = ENV.gcpCredentialsJson || ENV.gcpServiceAccountJson || ENV.gcpServiceAccountPath;
+      expect(hasCredentialEnv).toBeTruthy();
+    }
     
-    if (hasCredentialEnv) {
-      // Credentials should be loaded if JSON is valid
-      // Note: They might be null if the JSON is invalid, which is fine
-      expect(config.credentials !== undefined || config.missing.some(m => m.includes("CREDENTIALS"))).toBe(true);
+    // Verify that if no credentials are present, they're listed as missing
+    if (!config.credentials) {
+      expect(config.missing.some(m => m.includes("CREDENTIALS"))).toBe(true);
     }
   });
 });
