@@ -14,23 +14,105 @@ export function getDocumentAiClient(): DocumentProcessorServiceClient | null {
   return cachedClient;
 }
 
+export interface DocumentAIError {
+  code: "disabled" | "not_configured" | "no_processor" | "api_error" | "processing_error";
+  message: string;
+  details?: unknown;
+  processorId?: string;
+}
+
+export interface DocumentAIResult {
+  success: true;
+  document: CanonicalDocument;
+  processorId: string;
+  processorType: DocumentAiProcessorType;
+}
+
+export type DocumentAIResponse = DocumentAIResult | { success: false; error: DocumentAIError };
+
 export async function processWithDocumentAI(
   fileBuffer: Buffer,
   documentType: CanonicalDocument["documentType"]
 ): Promise<CanonicalDocument | null> {
+  const result = await processWithDocumentAIStructured(fileBuffer, documentType);
+  
+  if (result.success) {
+    return result.document;
+  }
+  
+  // Log error for debugging
+  console.error("Document AI processing failed", {
+    code: result.error.code,
+    message: result.error.message,
+    processorId: result.error.processorId,
+    details: result.error.details,
+  });
+  
+  return null;
+}
+
+export async function processWithDocumentAIStructured(
+  fileBuffer: Buffer,
+  documentType: CanonicalDocument["documentType"]
+): Promise<DocumentAIResponse> {
   const config = getDocumentAiConfig();
-  if (!config.enabled || !config.ready || !config.credentials) {
-    if (config.enabled && !config.ready) {
-      console.warn("Document AI enabled but missing configuration", { missing: config.missing });
-    }
-    return null;
+  
+  // Check feature toggle
+  if (!config.enabled) {
+    return {
+      success: false,
+      error: {
+        code: "disabled",
+        message: "Document AI is disabled via ENABLE_DOC_AI=false",
+      },
+    };
+  }
+
+  // Check configuration completeness
+  if (!config.ready || !config.credentials) {
+    return {
+      success: false,
+      error: {
+        code: "not_configured",
+        message: "Document AI enabled but missing configuration",
+        details: { missing: config.missing },
+      },
+    };
   }
 
   const client = getDocumentAiClient();
-  const processorId = resolveProcessorId(config, mapDocTypeToProcessor(documentType));
-  if (!client || !processorId) return null;
+  if (!client) {
+    return {
+      success: false,
+      error: {
+        code: "not_configured",
+        message: "Failed to create Document AI client",
+        details: { missing: config.missing },
+      },
+    };
+  }
+
+  const processorType = mapDocTypeToProcessor(documentType);
+  const processorId = resolveProcessorId(config, processorType);
+  
+  if (!processorId) {
+    return {
+      success: false,
+      error: {
+        code: "no_processor",
+        message: `No processor available for document type: ${documentType}`,
+        details: { 
+          documentType,
+          availableProcessors: Object.keys(config.processors),
+        },
+      },
+    };
+  }
 
   const name = buildProcessorName(config.projectId, config.location, processorId);
+
+  // Log processor selection for debug panel
+  console.log(`[Document AI] Processing ${documentType} with processor: ${processorId} (type: ${processorType})`);
 
   try {
     const [result] = await client.processDocument({
@@ -71,15 +153,38 @@ export async function processWithDocumentAI(
 
     const transactions = normalizeDocumentAITransactions(normalizedDoc, documentType);
 
-    return {
+    const document: CanonicalDocument = {
       documentType,
       transactions,
       rawText: normalizedDoc.text,
       warnings: transactions.length === 0 ? ["No transactions returned from Document AI"] : undefined,
-    } satisfies CanonicalDocument;
+    };
+
+    return {
+      success: true,
+      document,
+      processorId,
+      processorType,
+    };
   } catch (error) {
-    console.error("Document AI processing failed", error);
-    return null;
+    // Handle API errors
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const isApiError = error instanceof Error && (
+      errorMessage.includes("permission") ||
+      errorMessage.includes("authentication") ||
+      errorMessage.includes("quota") ||
+      errorMessage.includes("not found")
+    );
+
+    return {
+      success: false,
+      error: {
+        code: isApiError ? "api_error" : "processing_error",
+        message: `Document AI processing failed: ${errorMessage}`,
+        details: error,
+        processorId,
+      },
+    };
   }
 }
 
