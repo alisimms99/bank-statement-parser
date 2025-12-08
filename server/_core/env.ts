@@ -15,6 +15,9 @@ export const ENV = {
   gcpInvoiceProcessorId: process.env.GCP_INVOICE_PROCESSOR_ID ?? "",
   gcpOcrProcessorId: process.env.GCP_OCR_PROCESSOR_ID ?? "",
   gcpCredentialsJson: process.env.GCP_DOCUMENTAI_CREDENTIALS ?? "",
+  gcpServiceAccountJson: process.env.GCP_SERVICE_ACCOUNT_JSON ?? "",
+  gcpServiceAccountPath: process.env.GCP_SERVICE_ACCOUNT_PATH ?? "",
+  enableDocAi: process.env.ENABLE_DOC_AI === "true",
 };
 
 export type DocumentAiProcessorType = "bank" | "invoice" | "ocr" | "form";
@@ -32,10 +35,10 @@ export interface DocumentAiConfig {
 
 export function getDocumentAiConfig(): DocumentAiConfig {
   const processors: Partial<Record<DocumentAiProcessorType, string>> = {
-    bank: ENV.docAiBankProcessorId || undefined,
-    invoice: ENV.docAiInvoiceProcessorId || undefined,
-    ocr: ENV.docAiOcrProcessorId || undefined,
-    form: ENV.docAiFormProcessorId || undefined,
+    bank: ENV.gcpBankProcessorId || undefined,
+    invoice: ENV.gcpInvoiceProcessorId || undefined,
+    ocr: ENV.gcpOcrProcessorId || undefined,
+    form: undefined, // No form processor ID defined yet
   };
 
   const credentials = loadServiceAccount();
@@ -43,7 +46,7 @@ export function getDocumentAiConfig(): DocumentAiConfig {
 
   if (!ENV.gcpProjectId) missing.push("GCP_PROJECT_ID");
   if (!ENV.gcpLocation) missing.push("GCP_LOCATION");
-  if (!credentials) missing.push("GCP_SERVICE_ACCOUNT_JSON or GCP_SERVICE_ACCOUNT_PATH");
+  if (!credentials) missing.push("GCP_SERVICE_ACCOUNT_JSON, GCP_SERVICE_ACCOUNT_PATH, or GCP_DOCUMENTAI_CREDENTIALS");
   if (!processors.bank && !processors.invoice && !processors.ocr && !processors.form) {
     missing.push("At least one DOC_AI_*_PROCESSOR_ID");
   }
@@ -67,6 +70,7 @@ export function getDocumentAiConfig(): DocumentAiConfig {
 }
 
 function loadServiceAccount(): Record<string, unknown> | null {
+  // Check new service account variables first
   if (ENV.gcpServiceAccountJson) {
     const parsed = tryParseJson(ENV.gcpServiceAccountJson);
     if (parsed) return parsed;
@@ -82,6 +86,12 @@ function loadServiceAccount(): Record<string, unknown> | null {
     } catch (error) {
       console.warn("Failed to read GCP service account file", error);
     }
+  }
+
+  // Fallback to legacy GCP_DOCUMENTAI_CREDENTIALS for backward compatibility
+  if (ENV.gcpCredentialsJson) {
+    const parsed = tryParseJson(ENV.gcpCredentialsJson);
+    if (parsed) return parsed;
   }
 
   return null;
