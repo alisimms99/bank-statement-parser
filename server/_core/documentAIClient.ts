@@ -1,6 +1,7 @@
 import { DocumentProcessorServiceClient } from "@google-cloud/documentai";
 import { DocumentAiNormalizedDocument, normalizeDocumentAITransactions } from "@shared/normalization";
 import type { CanonicalDocument } from "@shared/transactions";
+import type { DocumentAiTelemetry } from "@shared/types";
 import { DocumentAiProcessorType, getDocumentAiConfig } from "./env";
 
 let cachedClient: DocumentProcessorServiceClient | null = null;
@@ -14,23 +15,47 @@ export function getDocumentAiClient(): DocumentProcessorServiceClient | null {
   return cachedClient;
 }
 
+export interface DocumentAiProcessResult {
+  document: CanonicalDocument | null;
+  telemetry: DocumentAiTelemetry;
+}
+
 export async function processWithDocumentAI(
   fileBuffer: Buffer,
   documentType: CanonicalDocument["documentType"]
-): Promise<CanonicalDocument | null> {
+): Promise<DocumentAiProcessResult> {
   const config = getDocumentAiConfig();
   if (!config.enabled || !config.ready || !config.credentials) {
     if (config.enabled && !config.ready) {
       console.warn("Document AI enabled but missing configuration", { missing: config.missing });
     }
-    return null;
+    return {
+      document: null,
+      telemetry: {
+        enabled: config.enabled,
+        processor: null,
+        latencyMs: null,
+        entityCount: 0,
+      },
+    } satisfies DocumentAiProcessResult;
   }
 
   const client = getDocumentAiClient();
   const processorId = resolveProcessorId(config, mapDocTypeToProcessor(documentType));
-  if (!client || !processorId) return null;
+  if (!client || !processorId) {
+    return {
+      document: null,
+      telemetry: {
+        enabled: config.enabled,
+        processor: processorId ?? null,
+        latencyMs: null,
+        entityCount: 0,
+      },
+    } satisfies DocumentAiProcessResult;
+  }
 
   const name = buildProcessorName(config.projectId, config.location, processorId);
+  const start = Date.now();
 
   try {
     const [result] = await client.processDocument({
@@ -71,15 +96,33 @@ export async function processWithDocumentAI(
 
     const transactions = normalizeDocumentAITransactions(normalizedDoc, documentType);
 
+    const latencyMs = Date.now() - start;
+    const entityCount = result.document?.entities?.length ?? 0;
+
     return {
       documentType,
       transactions,
       rawText: normalizedDoc.text,
       warnings: transactions.length === 0 ? ["No transactions returned from Document AI"] : undefined,
-    } satisfies CanonicalDocument;
+    } satisfies CanonicalDocument,
+    telemetry: {
+      enabled: config.enabled,
+      processor: processorId,
+      latencyMs,
+      entityCount,
+    },
+  } satisfies DocumentAiProcessResult;
   } catch (error) {
     console.error("Document AI processing failed", error);
-    return null;
+    return {
+      document: null,
+      telemetry: {
+        enabled: config.enabled,
+        processor: processorId,
+        latencyMs: Date.now() - start,
+        entityCount: 0,
+      },
+    } satisfies DocumentAiProcessResult;
   }
 }
 
