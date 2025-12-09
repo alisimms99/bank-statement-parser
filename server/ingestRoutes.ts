@@ -171,7 +171,12 @@ export function registerIngestionRoutes(app: Express) {
           document: docAIDocument,
           error: undefined,
           fallback: undefined,
-          docAiTelemetry,
+          docAiTelemetry: docAiTelemetry ?? {
+            enabled: true,
+            processor: processorId ?? null,
+            latencyMs: Date.now() - startTime,
+            entityCount: docAIDocument.transactions.length,
+          },
           exportId, // Include export ID for CSV download
         });
       }
