@@ -100,6 +100,12 @@ export default function Home() {
           }
 
           setStatus(file.name, "extraction", "Document AI unavailable, using legacy parser", "legacy");
+          
+          // Capture exportId from backend response even in legacy fallback
+          if (result.exportId) {
+            setExportId(result.exportId);
+          }
+          
           const text = await extractTextFromPDF(file);
           const parsedTransactions = parseStatementText(text);
           const canonical = legacyTransactionsToCanonical(parsedTransactions);
@@ -143,6 +149,7 @@ export default function Home() {
     setIngestionSource("legacy");
     setDocAiTelemetry(null);
     setFallbackReason(undefined);
+    setExportId(undefined);
     fileCache.current.clear();
     toast.info("Pipeline reset. Please upload files again.");
   };
