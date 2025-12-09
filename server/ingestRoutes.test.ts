@@ -121,14 +121,6 @@ describe("registerIngestionRoutes", () => {
   });
 
   it("falls back to legacy when Document AI fails", async () => {
-    processMock.mockResolvedValue({
-      document: null,
-      telemetry: sampleTelemetry,
-    expect(res.body.processorId).toBe("test-processor-id");
-    expect(processStructuredMock).toHaveBeenCalled();
-  });
-
-  it("falls back to legacy when Document AI fails", async () => {
     processStructuredMock.mockResolvedValue({
       success: false,
       error: {
