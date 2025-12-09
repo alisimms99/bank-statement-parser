@@ -156,9 +156,6 @@ describe("registerIngestionRoutes", () => {
       processors: {},
       missing: ["enable"],
     });
-    processMock.mockResolvedValue({
-      document: null,
-      telemetry: { enabled: false, processor: null, latencyMs: null, entityCount: 0 },
     processStructuredMock.mockResolvedValue({
       success: false,
       error: {
