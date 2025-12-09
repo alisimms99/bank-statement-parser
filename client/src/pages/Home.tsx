@@ -179,6 +179,29 @@ export default function Home() {
     }
   };
 
+  const handleExportPDF = async () => {
+    if (normalizedTransactions.length === 0) {
+      toast.error('No transactions to export');
+      return;
+    }
+
+    if (!exportId) {
+      toast.error('PDF export requires backend processing. Please re-upload your files.');
+      return;
+    }
+
+    try {
+      const url = `/api/export/${exportId}/pdf`;
+      
+      // Use window.location for download to trigger browser download
+      window.location.href = url;
+      toast.success('PDF file download started');
+    } catch (error) {
+      console.error("Error downloading PDF from backend", error);
+      toast.error('Failed to download PDF from backend');
+    }
+  };
+
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Animated background gradient */}
@@ -305,16 +328,26 @@ export default function Home() {
                         variant="outline"
                         onClick={() => setShowPreviewModal(true)}
                         className="gap-2"
+                        disabled={normalizedTransactions.length === 0}
                       >
                         <Eye className="w-4 h-4" />
                         Preview Parse Results
                       </Button>
                       <Button
                         onClick={handleExportCSV}
-                        className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
+                        className="gap-2"
+                        disabled={normalizedTransactions.length === 0}
                       >
                         <Download className="w-4 h-4" />
                         Export to CSV
+                      </Button>
+                      <Button
+                        onClick={handleExportPDF}
+                        className="gap-2"
+                        disabled={normalizedTransactions.length === 0}
+                      >
+                        <FileText className="w-4 h-4" />
+                        Export to PDF
                       </Button>
                     </div>
                   </div>
