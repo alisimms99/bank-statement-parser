@@ -206,20 +206,6 @@ export default function Home() {
       }
     } else {
       toast.error('PDF export is only available for backend-processed documents.');
-    if (!exportId) {
-      toast.error('PDF export requires backend processing. Please re-upload your files.');
-      return;
-    }
-
-    try {
-      const url = `/api/export/${exportId}/pdf`;
-      
-      // Use window.location for download - backend sets Content-Disposition header for download
-      window.location.href = url;
-      toast.success('PDF file download started');
-    } catch (error) {
-      console.error("Error downloading PDF from backend", error);
-      toast.error('Failed to download PDF from backend');
     }
   };
 
@@ -370,10 +356,6 @@ export default function Home() {
                         title={!exportId ? "PDF export requires backend processing" : undefined}
                       >
                         <Download className="w-4 h-4" />
-                        className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
-                        disabled={normalizedTransactions.length === 0}
-                      >
-                        <FileText className="w-4 h-4" />
                         Export to PDF
                       </Button>
                     </div>
