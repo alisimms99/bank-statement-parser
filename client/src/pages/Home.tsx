@@ -100,6 +100,12 @@ export default function Home() {
           }
 
           setStatus(file.name, "extraction", "Document AI unavailable, using legacy parser", "legacy");
+          
+          // Capture exportId from backend response even in legacy fallback
+          if (result.exportId) {
+            setExportId(result.exportId);
+          }
+          
           const text = await extractTextFromPDF(file);
           const parsedTransactions = parseStatementText(text);
           const canonical = legacyTransactionsToCanonical(parsedTransactions);
@@ -143,6 +149,7 @@ export default function Home() {
     setIngestionSource("legacy");
     setDocAiTelemetry(null);
     setFallbackReason(undefined);
+    setExportId(undefined);
     fileCache.current.clear();
     toast.info("Pipeline reset. Please upload files again.");
   };
@@ -185,20 +192,20 @@ export default function Home() {
       return;
     }
 
-    if (!exportId) {
-      toast.error('PDF export requires backend processing. Please re-upload your files.');
-      return;
-    }
-
-    try {
-      const url = `/api/export/${exportId}/pdf`;
-      
-      // Use window.location for download - backend sets Content-Disposition header for download
-      window.location.href = url;
-      toast.success('PDF file download started');
-    } catch (error) {
-      console.error("Error downloading PDF from backend", error);
-      toast.error('Failed to download PDF from backend');
+    // Use backend export endpoint if exportId is available
+    if (exportId) {
+      try {
+        const url = `/api/export/${exportId}/pdf`;
+        
+        // Use window.location for download to trigger browser download
+        window.location.href = url;
+        toast.success('PDF file download started');
+      } catch (error) {
+        console.error("Error downloading PDF from backend", error);
+        toast.error('Failed to download PDF from backend. PDF export is only available for backend-processed documents.');
+      }
+    } else {
+      toast.error('PDF export is only available for backend-processed documents.');
     }
   };
 
@@ -343,10 +350,12 @@ export default function Home() {
                       </Button>
                       <Button
                         onClick={handleExportPDF}
-                        className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
-                        disabled={normalizedTransactions.length === 0}
+                        variant="outline"
+                        className="gap-2"
+                        disabled={normalizedTransactions.length === 0 || !exportId}
+                        title={!exportId ? "PDF export requires backend processing" : undefined}
                       >
-                        <FileText className="w-4 h-4" />
+                        <Download className="w-4 h-4" />
                         Export to PDF
                       </Button>
                     </div>

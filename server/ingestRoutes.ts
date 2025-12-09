@@ -7,6 +7,7 @@ import { normalizeLegacyTransactions } from "@shared/normalization";
 import type { CanonicalDocument, CanonicalTransaction } from "@shared/transactions";
 import type { DocumentAiTelemetry } from "@shared/types";
 import { storeTransactions } from "./exportRoutes";
+import { recordIngestMetric } from "./_core/metrics";
 
 // Support both JSON and multipart form data
 const upload = multer({ storage: multer.memoryStorage() });
@@ -107,6 +108,9 @@ export function registerIngestionRoutes(app: Express) {
 
     const { fileName, buffer, documentType } = parsed;
 
+    // Track start time for telemetry (must be outside try block for error path)
+    const startTime = Date.now();
+
     try {
       // Get config first to check if Document AI is enabled
       const config = getDocumentAiConfig();
@@ -117,7 +121,6 @@ export function registerIngestionRoutes(app: Express) {
       let processorId: string | undefined;
       let processorType: string | undefined;
       let docAiTelemetry: DocumentAiTelemetry | undefined;
-      const startTime = Date.now();
       
       if (isDocAIEnabled) {
         // Use structured version to get processor info for debug panel
@@ -166,6 +169,17 @@ export function registerIngestionRoutes(app: Express) {
       if (docAIDocument && docAIDocument.transactions.length > 0) {
         // Document AI succeeded - store transactions and include export ID
         const exportId = storeTransactions(docAIDocument.transactions);
+        const durationMs = Date.now() - startTime;
+        
+        // Record ingest telemetry for Document AI success
+        recordIngestMetric({
+          source: "documentai",
+          durationMs,
+          documentType,
+          timestamp: Date.now(),
+          fallbackReason: null,
+        });
+        
         return res.json({ 
           source: "documentai", 
           document: docAIDocument,
@@ -182,7 +196,9 @@ export function registerIngestionRoutes(app: Express) {
       console.log(`[Ingestion] Document AI ${fallbackReason} for ${fileName}, using legacy parser`);
 
       // Process with legacy parser
+      const legacyStartTime = Date.now();
       const legacyTransactions = await processLegacyFallback(buffer, documentType);
+      const legacyDurationMs = Date.now() - legacyStartTime;
       
       const legacyDoc: CanonicalDocument = {
         documentType,
@@ -195,6 +211,15 @@ export function registerIngestionRoutes(app: Express) {
 
       // Store transactions and include export ID
       const exportId = storeTransactions(legacyTransactions);
+
+      // Record ingest telemetry for legacy fallback
+      recordIngestMetric({
+        source: "legacy",
+        durationMs: legacyDurationMs,
+        documentType,
+        timestamp: Date.now(),
+        fallbackReason,
+      });
 
       return res.json({
         source: "legacy",
@@ -211,6 +236,17 @@ export function registerIngestionRoutes(app: Express) {
       });
     } catch (error) {
       console.error("Error processing ingestion", { fileName, documentType, error });
+      const errorDurationMs = Date.now() - startTime;
+      
+      // Record ingest telemetry for error path
+      recordIngestMetric({
+        source: "error",
+        durationMs: errorDurationMs,
+        documentType,
+        timestamp: Date.now(),
+        fallbackReason: "error",
+      });
+      
       return res.status(500).json({
         error: "Failed to ingest document",
         fallback: "legacy",
