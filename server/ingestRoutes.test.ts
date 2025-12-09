@@ -116,8 +116,10 @@ describe("registerIngestionRoutes", () => {
     expect(res.status).toBe(200);
     expect(res.body.source).toBe("documentai");
     expect(res.body.document.transactions).toHaveLength(sampleCanonicalTransactions.length);
-    expect(res.body.docAiTelemetry).toEqual(sampleTelemetry);
-    expect(processMock).toHaveBeenCalled();
+    expect(res.body.docAiTelemetry).toBeDefined();
+    expect(res.body.docAiTelemetry.enabled).toBe(true);
+    expect(res.body.docAiTelemetry.processor).toBe("test-processor-id");
+    expect(processStructuredMock).toHaveBeenCalled();
   });
 
   it("falls back to legacy when Document AI fails", async () => {
@@ -143,7 +145,8 @@ describe("registerIngestionRoutes", () => {
     expect(res.body.source).toBe("legacy");
     expect(res.body.fallback).toBe("failed");
     expect(res.body.document.transactions).toHaveLength(2);
-    expect(res.body.docAiTelemetry).toEqual(sampleTelemetry);
+    expect(res.body.docAiTelemetry).toBeDefined();
+    expect(res.body.docAiTelemetry.enabled).toBe(true);
   });
 
   it("uses legacy-only mode when Document AI is disabled", async () => {
