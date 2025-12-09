@@ -107,50 +107,36 @@ export function registerIngestionRoutes(app: Express) {
 
     const { fileName, buffer, documentType } = parsed;
 
-    // Track Document AI result so we can safely surface telemetry even when using fallbacks
-    let docAiResult: { document: CanonicalDocument | null; telemetry: DocumentAiTelemetry } = {
-      document: null,
-      telemetry: {
-        enabled: false,
-        processor: null,
-        latencyMs: null,
-        entityCount: 0,
-      },
-    };
-
     try {
       // Get config first to check if Document AI is enabled
       const config = getDocumentAiConfig();
       const isDocAIEnabled = config && config.enabled === true;
-
+      
       // Try Document AI first (if enabled)
-      docAiResult = isDocAIEnabled
-        ? await processWithDocumentAI(buffer, documentType)
-        : {
-            document: null,
-            telemetry: {
-              enabled: false,
-              processor: null,
-              latencyMs: null,
-              entityCount: 0,
-            } satisfies DocumentAiTelemetry,
-          };
-
-      if (docAiResult.document && docAiResult.document.transactions.length > 0) {
-        // Document AI succeeded
-        console.log(`[Ingestion] Document AI succeeded for ${fileName}: ${docAiResult.document.transactions.length} transactions`);
-        return res.json({ source: "documentai", document: docAiResult.document, docAiTelemetry: docAiResult.telemetry });
       let docAIDocument: CanonicalDocument | null = null;
       let processorId: string | undefined;
+      let processorType: string | undefined;
+      let docAiTelemetry: DocumentAiTelemetry | undefined;
+      const startTime = Date.now();
       
       if (isDocAIEnabled) {
         // Use structured version to get processor info for debug panel
         const docAIResult = await processWithDocumentAIStructured(buffer, documentType);
+        const latencyMs = Date.now() - startTime;
         
         if (docAIResult.success) {
           docAIDocument = docAIResult.document;
           processorId = docAIResult.processorId;
+          processorType = docAIResult.processorType;
           console.log(`[Ingestion] Document AI succeeded for ${fileName}: ${docAIResult.document.transactions.length} transactions using processor ${docAIResult.processorId} (${docAIResult.processorType})`);
+          
+          // Generate telemetry for successful Document AI
+          docAiTelemetry = {
+            enabled: true,
+            processor: processorId,
+            latencyMs,
+            entityCount: docAIResult.document.transactions.length,
+          };
         } else {
           // Log structured error info
           console.warn(`[Ingestion] Document AI failed for ${fileName}:`, {
@@ -158,7 +144,23 @@ export function registerIngestionRoutes(app: Express) {
             message: docAIResult.error.message,
             processorId: docAIResult.error.processorId,
           });
+          
+          // Generate telemetry for failed Document AI
+          docAiTelemetry = {
+            enabled: true,
+            processor: docAIResult.error.processorId ?? null,
+            latencyMs,
+            entityCount: 0,
+          };
         }
+      } else {
+        // Document AI disabled
+        docAiTelemetry = {
+          enabled: false,
+          processor: null,
+          latencyMs: null,
+          entityCount: 0,
+        };
       }
 
       if (docAIDocument && docAIDocument.transactions.length > 0) {
@@ -167,7 +169,9 @@ export function registerIngestionRoutes(app: Express) {
         return res.json({ 
           source: "documentai", 
           document: docAIDocument,
-          processorId, // Include processor ID for debug panel
+          error: undefined,
+          fallback: undefined,
+          docAiTelemetry,
           exportId, // Include export ID for CSV download
         });
       }
@@ -189,18 +193,20 @@ export function registerIngestionRoutes(app: Express) {
         rawText: undefined,
       };
 
+      // Store transactions and include export ID
+      const exportId = storeTransactions(legacyTransactions);
+
       return res.json({
         source: "legacy",
         fallback: fallbackReason,
         document: legacyDoc,
-        docAiTelemetry: docAiResult.telemetry,
-      // Store transactions and include export ID
-      const exportId = storeTransactions(legacyTransactions);
-
-      return res.json({ 
-        source: "legacy", 
-        fallback: fallbackReason,
-        document: legacyDoc,
+        error: undefined,
+        docAiTelemetry: docAiTelemetry ?? {
+          enabled: false,
+          processor: null,
+          latencyMs: null,
+          entityCount: 0,
+        },
         exportId, // Include export ID for CSV download
       });
     } catch (error) {
