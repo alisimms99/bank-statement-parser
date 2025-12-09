@@ -140,7 +140,9 @@ export function registerIngestionRoutes(app: Express) {
         return res.json({ 
           source: "documentai", 
           document: docAIDocument,
-          processorId, // Include processor ID for debug panel
+          error: undefined,
+          fallback: undefined,
+          docAiTelemetry,
           exportId, // Include export ID for CSV download
         });
       }
@@ -169,6 +171,13 @@ export function registerIngestionRoutes(app: Express) {
         source: "legacy",
         fallback: fallbackReason,
         document: legacyDoc,
+        error: undefined,
+        docAiTelemetry: docAiTelemetry ?? {
+          enabled: false,
+          processor: null,
+          latencyMs: null,
+          entityCount: 0,
+        },
         exportId, // Include export ID for CSV download
       });
     } catch (error) {
