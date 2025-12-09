@@ -115,15 +115,28 @@ export function registerIngestionRoutes(app: Express) {
       // Try Document AI first (if enabled)
       let docAIDocument: CanonicalDocument | null = null;
       let processorId: string | undefined;
+      let processorType: string | undefined;
+      let docAiTelemetry: DocumentAiTelemetry | undefined;
+      const startTime = Date.now();
       
       if (isDocAIEnabled) {
         // Use structured version to get processor info for debug panel
         const docAIResult = await processWithDocumentAIStructured(buffer, documentType);
+        const latencyMs = Date.now() - startTime;
         
         if (docAIResult.success) {
           docAIDocument = docAIResult.document;
           processorId = docAIResult.processorId;
+          processorType = docAIResult.processorType;
           console.log(`[Ingestion] Document AI succeeded for ${fileName}: ${docAIResult.document.transactions.length} transactions using processor ${docAIResult.processorId} (${docAIResult.processorType})`);
+          
+          // Generate telemetry for successful Document AI
+          docAiTelemetry = {
+            enabled: true,
+            processor: processorId,
+            latencyMs,
+            entityCount: docAIResult.document.transactions.length,
+          };
         } else {
           // Log structured error info
           console.warn(`[Ingestion] Document AI failed for ${fileName}:`, {
@@ -131,7 +144,23 @@ export function registerIngestionRoutes(app: Express) {
             message: docAIResult.error.message,
             processorId: docAIResult.error.processorId,
           });
+          
+          // Generate telemetry for failed Document AI
+          docAiTelemetry = {
+            enabled: true,
+            processor: docAIResult.error.processorId ?? null,
+            latencyMs,
+            entityCount: 0,
+          };
         }
+      } else {
+        // Document AI disabled
+        docAiTelemetry = {
+          enabled: false,
+          processor: null,
+          latencyMs: null,
+          entityCount: 0,
+        };
       }
 
       if (docAIDocument && docAIDocument.transactions.length > 0) {
