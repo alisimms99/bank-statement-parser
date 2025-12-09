@@ -193,7 +193,7 @@ export default function Home() {
     try {
       const url = `/api/export/${exportId}/pdf`;
       
-      // Use window.location for download to trigger browser download
+      // Use window.location for download - backend sets Content-Disposition header for download
       window.location.href = url;
       toast.success('PDF file download started');
     } catch (error) {
@@ -335,7 +335,7 @@ export default function Home() {
                       </Button>
                       <Button
                         onClick={handleExportCSV}
-                        className="gap-2"
+                        className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
                         disabled={normalizedTransactions.length === 0}
                       >
                         <Download className="w-4 h-4" />
@@ -343,7 +343,7 @@ export default function Home() {
                       </Button>
                       <Button
                         onClick={handleExportPDF}
-                        className="gap-2"
+                        className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
                         disabled={normalizedTransactions.length === 0}
                       >
                         <FileText className="w-4 h-4" />
