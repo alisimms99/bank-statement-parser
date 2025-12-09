@@ -179,6 +179,29 @@ export default function Home() {
     }
   };
 
+  const handleExportPDF = async () => {
+    if (normalizedTransactions.length === 0) {
+      toast.error('No transactions to export');
+      return;
+    }
+
+    // Use backend export endpoint if exportId is available
+    if (exportId) {
+      try {
+        const url = `/api/export/${exportId}/pdf`;
+        
+        // Use window.location for download to trigger browser download
+        window.location.href = url;
+        toast.success('PDF file download started');
+      } catch (error) {
+        console.error("Error downloading PDF from backend", error);
+        toast.error('Failed to download PDF from backend. PDF export is only available for backend-processed documents.');
+      }
+    } else {
+      toast.error('PDF export is only available for backend-processed documents.');
+    }
+  };
+
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Animated background gradient */}
@@ -305,6 +328,7 @@ export default function Home() {
                         variant="outline"
                         onClick={() => setShowPreviewModal(true)}
                         className="gap-2"
+                        disabled={normalizedTransactions.length === 0}
                       >
                         <Eye className="w-4 h-4" />
                         Preview Parse Results
@@ -312,9 +336,20 @@ export default function Home() {
                       <Button
                         onClick={handleExportCSV}
                         className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
+                        disabled={normalizedTransactions.length === 0}
                       >
                         <Download className="w-4 h-4" />
                         Export to CSV
+                      </Button>
+                      <Button
+                        onClick={handleExportPDF}
+                        variant="outline"
+                        className="gap-2"
+                        disabled={normalizedTransactions.length === 0 || !exportId}
+                        title={!exportId ? "PDF export requires backend processing" : undefined}
+                      >
+                        <Download className="w-4 h-4" />
+                        Export to PDF
                       </Button>
                     </div>
                   </div>
