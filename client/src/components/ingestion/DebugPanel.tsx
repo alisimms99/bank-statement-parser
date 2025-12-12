@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/table";
 import type { DocumentAiTelemetry, NormalizedTransaction } from "@shared/types";
 import type { IngestionSource } from "@/lib/ingestionClient";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Trash2 } from "lucide-react";
 
 export interface IngestionDebugData {
   source: IngestionSource;
@@ -22,6 +22,7 @@ export interface IngestionDebugData {
 export interface DebugPanelProps {
   ingestionData: IngestionDebugData;
   onRetry: () => void;
+  onClearStoredData: () => void;
 }
 
 /**
@@ -34,7 +35,7 @@ export interface DebugPanelProps {
  * 
  * Only shown when DEBUG_VIEW=true in environment variables.
  */
-export default function DebugPanel({ ingestionData, onRetry }: DebugPanelProps) {
+export default function DebugPanel({ ingestionData, onRetry, onClearStoredData }: DebugPanelProps) {
   const { source, normalizedTransactions, docAiTelemetry, fallbackReason } = ingestionData;
   
   // Show first 10 transactions
@@ -77,15 +78,29 @@ export default function DebugPanel({ ingestionData, onRetry }: DebugPanelProps) 
               {sourceLabel}
             </Badge>
           </div>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={onRetry}
-          className="gap-2"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Retry
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              localStorage.removeItem("normalizedTransactions");
+              onClearStoredData();
+            }}
+            className="gap-2"
+          >
+            <Trash2 className="w-4 h-4" />
+            Clear Stored Data
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRetry}
+            className="gap-2"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Retry
+          </Button>
+        </div>
       </div>
 
       {(docAiTelemetry || fallbackReason) && (

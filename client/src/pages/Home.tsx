@@ -19,7 +19,7 @@ import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
 import type { DocumentAiTelemetry } from "@shared/types";
 import { Download, Eye, FileText, Loader2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 // Check if debug view is enabled via environment variable
@@ -42,6 +42,24 @@ export default function Home() {
   
   // Cache files for retry functionality
   const fileCache = useRef<Map<string, File>>(new Map());
+  const hasHydratedFromStorageRef = useRef(false);
+
+  useEffect(() => {
+    // Hydrate once on initial load. Do NOT re-hydrate when state is cleared (e.g. Retry).
+    if (hasHydratedFromStorageRef.current) return;
+    if (normalizedTransactions.length !== 0) return;
+    const saved = localStorage.getItem("normalizedTransactions");
+    hasHydratedFromStorageRef.current = true;
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved) as CanonicalTransaction[];
+      if (!Array.isArray(parsed) || parsed.length === 0) return;
+      setNormalizedTransactions(parsed);
+      setTransactions(parsed.map(canonicalToDisplayTransaction));
+    } catch (error) {
+      console.warn("Failed to hydrate normalized transactions from localStorage", error);
+    }
+  }, [normalizedTransactions.length]);
 
   // Helper function to update file status
   const setStatus = (fileName: string, phase: FileStatus["phase"], message: string, source: FileStatus["source"]) => {
@@ -127,6 +145,9 @@ export default function Home() {
 
       setTransactions(allTransactions);
       setNormalizedTransactions(allCanonical);
+      if (allCanonical.length > 0) {
+        localStorage.setItem("normalizedTransactions", JSON.stringify(allCanonical));
+      }
       setProcessedFiles(fileNames);
       setIngestionSource(latestSource);
       
@@ -143,6 +164,7 @@ export default function Home() {
 
   const handleRetry = () => {
     // Reset all state and clear cache
+    localStorage.removeItem("normalizedTransactions");
     setTransactions([]);
     setNormalizedTransactions([]);
     setProcessedFiles([]);
@@ -316,6 +338,7 @@ export default function Home() {
                   fallbackReason,
                 }}
                 onRetry={handleRetry}
+                onClearStoredData={handleRetry}
               />
             )}
 
