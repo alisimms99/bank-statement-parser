@@ -153,18 +153,39 @@ export default function Home() {
           }
 
           if (result.document && result.document.transactions.length > 0) {
-            setStatus(file.name, "extraction", "Document AI extraction complete", "documentai");
             const canonical = result.document.transactions;
+            const isDocumentAi = result.source === "documentai";
+            const statusSource: FileStatus["source"] = isDocumentAi ? "documentai" : "legacy";
+
+            setStatus(
+              file.name,
+              "extraction",
+              isDocumentAi ? "Document AI extraction complete" : "Legacy extraction complete",
+              statusSource
+            );
+
             allCanonical.push(...canonical);
             allTransactions.push(...canonical.map(canonicalToDisplayTransaction));
             fileNames.push(file.name);
+
             // Store export ID if available (from backend)
             if (result.exportId) {
               setExportId(result.exportId);
             }
-            setStatus(file.name, "normalization", "Normalized to canonical schema", "documentai");
-            setStatus(file.name, "export", "Ready for export", "documentai");
-            toast.success(`Document AI extracted ${canonical.length} transactions from ${file.name}`);
+
+            setStatus(
+              file.name,
+              "normalization",
+              isDocumentAi ? "Normalized to canonical schema" : "Legacy normalization complete",
+              statusSource
+            );
+            setStatus(file.name, "export", "Ready for export", statusSource);
+
+            toast.success(
+              isDocumentAi
+                ? `Document AI extracted ${canonical.length} transactions from ${file.name}`
+                : `Extracted ${canonical.length} transactions from ${file.name}`
+            );
             continue;
           }
 
