@@ -345,7 +345,25 @@ export default function Home() {
           <div className="max-w-5xl mx-auto space-y-8">
             {/* Upload section */}
             <div className="space-y-4">
-              <FileUpload onFilesSelected={handleFilesSelected} />
+              {normalizedTransactions.length === 0 && (
+                <div className="text-center">
+                  <div className="mx-auto max-w-2xl rounded-xl border border-border/50 bg-background/30 backdrop-blur-md px-6 py-5">
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      <span className="font-medium text-foreground">Upload a bank statement PDF.</span>
+                      <br />
+                      The app will extract transactions, normalize them, and prepare them for CSV/PDF export.
+                      <br />
+                      If DoCAI is available, the AI-powered mode will activate automatically.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <FileUpload
+                onFilesSelected={handleFilesSelected}
+                isLoading={isProcessing}
+                hasTransactions={normalizedTransactions.length > 0}
+              />
 
               {Object.keys(fileStatuses).length > 0 && (
                 <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-3">
