@@ -1,7 +1,9 @@
 import { Upload } from 'lucide-react';
 import { useCallback, useState } from 'react';
+import { toast } from 'sonner';
 
 const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
+const PDF_MIME_TYPE = 'application/pdf';
 
 interface FileUploadProps {
   onFilesSelected: (files: File[]) => void;
@@ -11,11 +13,10 @@ interface FileUploadProps {
 
 export default function FileUpload({ 
   onFilesSelected, 
-  accept = '.pdf',
+  accept = PDF_MIME_TYPE,
   multiple = true 
 }: FileUploadProps) {
   const [isDragging, setIsDragging] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleValidatedFiles = useCallback(
     (files: File[]) => {
@@ -24,30 +25,36 @@ export default function FileUpload({
       }
 
       const validFiles: File[] = [];
-      const errors: string[] = [];
+      let shouldToastNonPdf = false;
+      let shouldToastTooLarge = false;
 
       files.forEach(file => {
-        if (file.size > MAX_UPLOAD_SIZE_BYTES) {
-          errors.push(`${file.name} exceeds the 25MB upload limit.`);
+        const looksLikePdfByName = file.name.toLowerCase().endsWith('.pdf');
+        const isPdf = file.type === PDF_MIME_TYPE || looksLikePdfByName;
+
+        if (!isPdf) {
+          shouldToastNonPdf = true;
           return;
         }
 
-        const isPdfMime = file.type === 'application/pdf';
-        const isPdfExtension = file.name.toLowerCase().endsWith('.pdf');
-
-        if (!isPdfMime && !isPdfExtension) {
-          errors.push(`${file.name} is not a PDF file.`);
+        if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+          shouldToastTooLarge = true;
           return;
         }
 
         validFiles.push(file);
       });
 
+      if (shouldToastNonPdf) {
+        toast.error("Only PDFs allowed");
+      }
+      if (shouldToastTooLarge) {
+        toast.error("File exceeds maximum size (25MB)");
+      }
+
       if (validFiles.length > 0) {
         onFilesSelected(validFiles);
       }
-
-      setErrorMessage(errors.length > 0 ? errors.join(' ') : null);
     },
     [onFilesSelected]
   );
@@ -137,16 +144,6 @@ export default function FileUpload({
           <span>Supports multiple PDF files</span>
         </div>
       </div>
-      
-      {errorMessage && (
-        <p
-          role="alert"
-          aria-live="polite"
-          className="text-xs text-destructive px-6 pb-3 pt-1"
-        >
-          {errorMessage}
-        </p>
-      )}
 
       {/* Glassmorphism effect overlay */}
       <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none" />
