@@ -42,10 +42,14 @@ export default function Home() {
   
   // Cache files for retry functionality
   const fileCache = useRef<Map<string, File>>(new Map());
+  const hasHydratedFromStorageRef = useRef(false);
 
   useEffect(() => {
+    // Hydrate once on initial load. Do NOT re-hydrate when state is cleared (e.g. Retry).
+    if (hasHydratedFromStorageRef.current) return;
     if (normalizedTransactions.length !== 0) return;
     const saved = localStorage.getItem("normalizedTransactions");
+    hasHydratedFromStorageRef.current = true;
     if (!saved) return;
     try {
       const parsed = JSON.parse(saved) as CanonicalTransaction[];
@@ -160,6 +164,7 @@ export default function Home() {
 
   const handleRetry = () => {
     // Reset all state and clear cache
+    localStorage.removeItem("normalizedTransactions");
     setTransactions([]);
     setNormalizedTransactions([]);
     setProcessedFiles([]);
