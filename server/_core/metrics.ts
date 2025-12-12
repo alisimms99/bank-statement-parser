@@ -1,3 +1,5 @@
+import type { IngestionFailure } from "@shared/types";
+
 export type IngestSource = "documentai" | "legacy" | "error";
 
 interface IngestMetric {
@@ -9,11 +11,19 @@ interface IngestMetric {
 }
 
 const metrics: IngestMetric[] = [];
+const ingestFailureLog: IngestionFailure[] = [];
 
 export function recordIngestMetric(entry: IngestMetric) {
   metrics.push(entry);
   if (metrics.length > 500) {
     metrics.shift();
+  }
+}
+
+export function recordIngestFailure(failure: IngestionFailure): void {
+  ingestFailureLog.push(failure);
+  if (ingestFailureLog.length > 500) {
+    ingestFailureLog.shift();
   }
 }
 

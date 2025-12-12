@@ -8,7 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { DocumentAiTelemetry, NormalizedTransaction } from "@shared/types";
+import type { DocumentAiTelemetry, IngestionFailure, NormalizedTransaction } from "@shared/types";
 import type { IngestionSource } from "@/lib/ingestionClient";
 import { RefreshCw, Trash2 } from "lucide-react";
 
@@ -21,6 +21,8 @@ export interface IngestionDebugData {
 
 export interface DebugPanelProps {
   ingestionData: IngestionDebugData;
+  ingestLog: IngestionFailure[];
+  onClearIngestLog: () => void;
   onRetry: () => void;
   onClearStoredData: () => void;
 }
@@ -35,7 +37,7 @@ export interface DebugPanelProps {
  * 
  * Only shown when DEBUG_VIEW=true in environment variables.
  */
-export default function DebugPanel({ ingestionData, onRetry, onClearStoredData }: DebugPanelProps) {
+export default function DebugPanel({ ingestionData, ingestLog, onClearIngestLog, onRetry, onClearStoredData }: DebugPanelProps) {
   const { source, normalizedTransactions, docAiTelemetry, fallbackReason } = ingestionData;
   
   // Show first 10 transactions
@@ -79,6 +81,19 @@ export default function DebugPanel({ ingestionData, onRetry, onClearStoredData }
             </Badge>
           </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              localStorage.removeItem("ingestLog");
+              onClearIngestLog();
+            }}
+            className="gap-2"
+            disabled={ingestLog.length === 0}
+          >
+            <Trash2 className="w-4 h-4" />
+            Clear Ingestion Log
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -128,6 +143,50 @@ export default function DebugPanel({ ingestionData, onRetry, onClearStoredData }
           )}
         </div>
       )}
+
+      {/* Ingestion Log */}
+      <div className="rounded-lg border border-border/60 bg-background/70 overflow-hidden">
+        <div className="px-4 py-3 border-b border-border/60 bg-background/80">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-medium text-foreground">Ingestion Log</div>
+            <div className="text-xs text-muted-foreground">{ingestLog.length} event(s)</div>
+          </div>
+        </div>
+
+        {ingestLog.length > 0 ? (
+          <div className="max-h-48 overflow-y-auto">
+            <div className="p-3 space-y-2">
+              {ingestLog.map((e, idx) => {
+                const isLatest = idx === ingestLog.length - 1;
+                return (
+                  <div
+                    key={`${e.ts}-${idx}`}
+                    className={[
+                      "rounded-md border px-3 py-2 text-xs",
+                      isLatest
+                        ? "border-destructive/40 bg-destructive/10 text-destructive"
+                        : "border-border/60 bg-card/40 text-foreground",
+                    ].join(" ")}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-mono text-[11px] text-muted-foreground">
+                        {new Date(e.ts).toLocaleString()}
+                      </div>
+                      <Badge variant={isLatest ? "destructive" : "secondary"} className="text-[10px] uppercase tracking-wide">
+                        {e.phase}
+                      </Badge>
+                    </div>
+                    <div className="mt-1">{e.message}</div>
+                    {e.hint && <div className="mt-1 text-[11px] text-muted-foreground">Hint: {e.hint}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="px-4 py-6 text-center text-xs text-muted-foreground">No ingestion failures recorded.</div>
+        )}
+      </div>
 
       <div className="rounded-lg border border-border/60 bg-background/70 overflow-hidden">
         <div className="px-4 py-3 border-b border-border/60 bg-background/80">

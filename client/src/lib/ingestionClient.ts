@@ -1,5 +1,5 @@
 import type { CanonicalDocument } from "@shared/transactions";
-import type { DocumentAiTelemetry } from "@shared/types";
+import type { DocumentAiTelemetry, IngestionFailure } from "@shared/types";
 
 export type IngestionSource = "documentai" | "legacy" | "error";
 
@@ -10,6 +10,8 @@ export interface IngestionResult {
   fallback?: string;
   docAiTelemetry?: DocumentAiTelemetry;
   exportId?: string; // UUID for CSV export endpoint
+  failure?: IngestionFailure;
+  docAiFailure?: IngestionFailure;
 }
 
 export async function ingestWithDocumentAI(
@@ -38,6 +40,7 @@ export async function ingestWithDocumentAI(
         fallback: payload.fallback,
         docAiTelemetry: payload.docAiTelemetry as DocumentAiTelemetry | undefined,
         exportId: payload.exportId, // Capture export ID for CSV download
+        docAiFailure: payload.docAiFailure as IngestionFailure | undefined,
       };
     }
 
@@ -48,10 +51,14 @@ export async function ingestWithDocumentAI(
 
     return {
       document: null,
-      source: (payload.source as IngestionSource | undefined) ?? "legacy",
+      source:
+        (payload.source as IngestionSource | undefined) ??
+        (response.ok ? ("legacy" as IngestionSource) : ("error" as IngestionSource)),
       error: normalizedError,
       fallback: payload.fallback,
       docAiTelemetry: payload.docAiTelemetry as DocumentAiTelemetry | undefined,
+      failure: payload.failure as IngestionFailure | undefined,
+      docAiFailure: payload.docAiFailure as IngestionFailure | undefined,
     };
   } catch (error: any) {
     return {
@@ -61,6 +68,12 @@ export async function ingestWithDocumentAI(
       fallback: undefined,
       docAiTelemetry: undefined,
       exportId: undefined,
+      failure: {
+        phase: "unknown",
+        message: error?.message ?? "Unknown error",
+        ts: Date.now(),
+        hint: "Client fetch() threw while calling /api/ingest",
+      },
     };
   }
 }

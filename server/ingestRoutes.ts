@@ -5,9 +5,9 @@ import { processWithDocumentAI, processWithDocumentAIStructured } from "./_core/
 import { getDocumentAiConfig } from "./_core/env";
 import { normalizeLegacyTransactions } from "@shared/normalization";
 import type { CanonicalDocument, CanonicalTransaction } from "@shared/transactions";
-import type { DocumentAiTelemetry } from "@shared/types";
+import type { DocumentAiTelemetry, IngestionFailure } from "@shared/types";
 import { storeTransactions } from "./exportRoutes";
-import { recordIngestMetric } from "./_core/metrics";
+import { recordIngestFailure, recordIngestMetric } from "./_core/metrics";
 
 // Support both JSON and multipart form data
 const upload = multer({ storage: multer.memoryStorage() });
@@ -76,6 +76,12 @@ async function processLegacyFallback(
     return pdfParser.legacyTransactionsToCanonical(legacyTransactions);
   } catch (error) {
     // If legacy parser fails, return empty array
+    recordIngestFailure({
+      phase: "normalize",
+      message: error instanceof Error ? error.message : "Legacy parser failed",
+      ts: Date.now(),
+      hint: "Legacy PDF parser threw while extracting/normalizing transactions",
+    });
     console.warn("Legacy parser failed", error);
     return [];
   }
@@ -103,7 +109,14 @@ export function registerIngestionRoutes(app: Express) {
     const parsed = parseRequest(req);
     
     if ("error" in parsed) {
-      return res.status(parsed.status).json({ error: parsed.error });
+      const failure: IngestionFailure = {
+        phase: "upload",
+        message: parsed.error,
+        ts: Date.now(),
+        hint: `Request rejected with HTTP ${parsed.status}`,
+      };
+      recordIngestFailure(failure);
+      return res.status(parsed.status).json({ error: parsed.error, source: "error", failure });
     }
 
     const { fileName, buffer, documentType } = parsed;
@@ -121,6 +134,7 @@ export function registerIngestionRoutes(app: Express) {
       let processorId: string | undefined;
       let processorType: string | undefined;
       let docAiTelemetry: DocumentAiTelemetry | undefined;
+      let docAiFailure: IngestionFailure | undefined;
       
       if (isDocAIEnabled) {
         // Use structured version to get processor info for debug panel
@@ -147,6 +161,14 @@ export function registerIngestionRoutes(app: Express) {
             message: docAIResult.error.message,
             processorId: docAIResult.error.processorId,
           });
+
+          docAiFailure = {
+            phase: "docai",
+            message: docAIResult.error.message ?? "Document AI processing failed",
+            ts: Date.now(),
+            hint: `code=${docAIResult.error.code}${docAIResult.error.processorId ? ` processorId=${docAIResult.error.processorId}` : ""}`,
+          };
+          recordIngestFailure(docAiFailure);
           
           // Generate telemetry for failed Document AI
           docAiTelemetry = {
@@ -233,10 +255,18 @@ export function registerIngestionRoutes(app: Express) {
           entityCount: 0,
         },
         exportId, // Include export ID for CSV download
+        docAiFailure,
       });
     } catch (error) {
       console.error("Error processing ingestion", { fileName, documentType, error });
       const errorDurationMs = Date.now() - startTime;
+      const failure: IngestionFailure = {
+        phase: "unknown",
+        message: error instanceof Error ? error.message : "Failed to ingest document",
+        ts: Date.now(),
+        hint: `file=${fileName} documentType=${documentType}`,
+      };
+      recordIngestFailure(failure);
       
       // Record ingest telemetry for error path
       recordIngestMetric({
@@ -251,6 +281,7 @@ export function registerIngestionRoutes(app: Express) {
         error: "Failed to ingest document",
         fallback: "legacy",
         source: "error",
+        failure,
         docAiTelemetry: {
           enabled: false,
           processor: null,

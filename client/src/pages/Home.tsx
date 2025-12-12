@@ -17,7 +17,7 @@ import {
 import { ingestWithDocumentAI, type IngestionSource } from "@/lib/ingestionClient";
 import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
-import type { DocumentAiTelemetry } from "@shared/types";
+import type { DocumentAiTelemetry, IngestionFailure } from "@shared/types";
 import { Download, Eye, FileText, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -29,6 +29,7 @@ const DEBUG_VIEW = import.meta.env.VITE_DEBUG_VIEW === "true";
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [normalizedTransactions, setNormalizedTransactions] = useState<CanonicalTransaction[]>([]);
+  const [ingestLog, setIngestLog] = useState<IngestionFailure[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedFiles, setProcessedFiles] = useState<string[]>([]);
   const [includeBom, setIncludeBom] = useState(true);
@@ -43,6 +44,7 @@ export default function Home() {
   // Cache files for retry functionality
   const fileCache = useRef<Map<string, File>>(new Map());
   const hasHydratedFromStorageRef = useRef(false);
+  const hasHydratedIngestLogRef = useRef(false);
 
   useEffect(() => {
     // Hydrate once on initial load. Do NOT re-hydrate when state is cleared (e.g. Retry).
@@ -61,12 +63,40 @@ export default function Home() {
     }
   }, [normalizedTransactions.length]);
 
+  useEffect(() => {
+    // Hydrate ingest log once on initial load
+    if (hasHydratedIngestLogRef.current) return;
+    hasHydratedIngestLogRef.current = true;
+    const saved = localStorage.getItem("ingestLog");
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved) as IngestionFailure[];
+      if (!Array.isArray(parsed) || parsed.length === 0) return;
+      setIngestLog(parsed);
+    } catch (error) {
+      console.warn("Failed to hydrate ingest log from localStorage", error);
+    }
+  }, []);
+
   // Helper function to update file status
   const setStatus = (fileName: string, phase: FileStatus["phase"], message: string, source: FileStatus["source"]) => {
     setFileStatuses(prev => ({
       ...prev,
       [fileName]: { phase, message, source },
     }));
+  };
+
+  const appendIngestFailure = (failure: IngestionFailure) => {
+    setIngestLog(prev => {
+      const next = [...prev, failure];
+      localStorage.setItem("ingestLog", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const clearIngestLog = () => {
+    localStorage.removeItem("ingestLog");
+    setIngestLog([]);
   };
 
   const handleFilesSelected = async (files: File[]) => {
@@ -99,7 +129,27 @@ export default function Home() {
             const message = result.error ?? "Invalid upload";
             toast.error(message);
             setStatus(file.name, "error", message, "error");
+            appendIngestFailure(
+              result.failure ?? {
+                phase: "unknown",
+                message,
+                ts: Date.now(),
+                hint: `file=${file.name}`,
+              }
+            );
             continue;
+          }
+
+          // Document AI failed on server and we fell back to legacy
+          if (result.source === "legacy" && result.fallback === "failed") {
+            appendIngestFailure(
+              result.docAiFailure ?? {
+                phase: "docai",
+                message: "Document AI failed; using legacy fallback",
+                ts: Date.now(),
+                hint: `file=${file.name}`,
+              }
+            );
           }
 
           if (result.document && result.document.transactions.length > 0) {
@@ -140,6 +190,12 @@ export default function Home() {
           console.error(`Error processing ${file.name}:`, error);
           toast.error(`Failed to process ${file.name}`);
           setStatus(file.name, "error", "Failed to process file", "error");
+          appendIngestFailure({
+            phase: "unknown",
+            message: error instanceof Error ? error.message : "Failed to process file",
+            ts: Date.now(),
+            hint: `file=${file.name}`,
+          });
         }
       }
 
@@ -329,13 +385,18 @@ export default function Home() {
             </div>
 
             {/* Debug Panel */}
-            {showDebug && normalizedTransactions.length > 0 && (
+            {showDebug && (normalizedTransactions.length > 0 || ingestLog.length > 0) && (
               <DebugPanel
                 ingestionData={{
                   source: ingestionSource,
                   normalizedTransactions,
                   docAiTelemetry: docAiTelemetry ?? undefined,
                   fallbackReason,
+                }}
+                ingestLog={ingestLog}
+                onClearIngestLog={() => {
+                  clearIngestLog();
+                  toast.info("Ingestion log cleared.");
                 }}
                 onRetry={handleRetry}
                 onClearStoredData={handleRetry}
