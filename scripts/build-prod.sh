@@ -30,6 +30,9 @@ cp "package.json" "prod/"
 if [ -f "pnpm-lock.yaml" ]; then
   cp "pnpm-lock.yaml" "prod/"
 fi
+if [ -d "patches" ]; then
+  cp -R "patches" "prod/"
+fi
 
 echo "INSTALLING PRODUCTION DEPENDENCIES (prod/)"
 (cd "prod" && pnpm install --prod --frozen-lockfile)

@@ -3,12 +3,13 @@ import multer from "multer";
 import { z } from "zod";
 import { processWithDocumentAI, processWithDocumentAIStructured } from "./_core/documentAIClient";
 import { getDocumentAiConfig } from "./_core/env";
-import { normalizeLegacyTransactions } from "@shared/normalization";
 import type { CanonicalDocument, CanonicalTransaction } from "@shared/transactions";
 import type { DocumentAiTelemetry, IngestionFailure } from "@shared/types";
+import { legacyTransactionsToCanonical, parseStatementText } from "@shared/legacyStatementParser";
 import { storeTransactions } from "./exportRoutes";
 import { recordIngestFailure, recordIngestMetric } from "./_core/metrics";
 import { logEvent, serializeError } from "./_core/log";
+import { extractTextFromPDFBuffer } from "./_core/pdfText";
 
 // Support both JSON and multipart form data
 const upload = multer({ storage: multer.memoryStorage() });
@@ -67,14 +68,10 @@ async function processLegacyFallback(
   buffer: Buffer,
   documentType: "bank_statement" | "invoice" | "receipt"
 ): Promise<CanonicalTransaction[]> {
-  // Import legacy parser functions dynamically
-  // In tests, these are mocked via vi.mock("../client/src/lib/pdfParser")
   try {
-    // Use dynamic import to allow test mocks to work
-    const pdfParser = await import("../client/src/lib/pdfParser");
     const text = await extractTextFromPDFBuffer(buffer);
-    const legacyTransactions = pdfParser.parseStatementText(text);
-    return pdfParser.legacyTransactionsToCanonical(legacyTransactions);
+    const legacyTransactions = parseStatementText(text);
+    return legacyTransactionsToCanonical(legacyTransactions);
   } catch (error) {
     // If legacy parser fails, return empty array
     recordIngestFailure({
@@ -86,22 +83,6 @@ async function processLegacyFallback(
     console.warn("Legacy parser failed", error);
     return [];
   }
-}
-
-async function extractTextFromPDFBuffer(buffer: Buffer): Promise<string> {
-  // Import pdfjs dynamically
-  const pdfjsLib = await import("pdfjs-dist");
-  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-  
-  let fullText = "";
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const textContent = await page.getTextContent();
-    const pageText = textContent.items.map((item: any) => item.str).join(" ");
-    fullText += pageText + "\n";
-  }
-  
-  return fullText;
 }
 
 export function registerIngestionRoutes(app: Express) {
@@ -249,7 +230,7 @@ export function registerIngestionRoutes(app: Express) {
 
       // Process with legacy parser
       const legacyStartTime = Date.now();
-      const legacyTransactions = await processLegacyFallback(buffer, documentType);
+      const legacyTransactions = (await processLegacyFallback(buffer, documentType)) ?? [];
       const legacyDurationMs = Date.now() - legacyStartTime;
       
       const legacyDoc: CanonicalDocument = {

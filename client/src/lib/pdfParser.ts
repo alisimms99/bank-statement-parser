@@ -1,19 +1,18 @@
-import * as pdfjsLib from 'pdfjs-dist';
-import { normalizeLegacyTransactions } from '@shared/normalization';
-import { CanonicalTransaction } from '@shared/transactions';
+import * as pdfjsLib from "pdfjs-dist";
+import type { CanonicalTransaction } from "@shared/transactions";
+import {
+  legacyTransactionsToCanonical as legacyTransactionsToCanonicalShared,
+  parseStatementText as parseStatementTextShared,
+  type LegacyTransaction as Transaction,
+} from "@shared/legacyStatementParser";
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
+  "pdfjs-dist/build/pdf.worker.min.mjs",
   import.meta.url
 ).toString();
 
-export interface Transaction {
-  date: string;
-  type: string;
-  payee: string;
-  amount: string;
-}
+export type { Transaction };
 
 export interface CsvExportOptions {
   includeBom?: boolean;
@@ -33,15 +32,15 @@ export async function extractTextFromPDF(file: File): Promise<string> {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   
-  let fullText = '';
+  let fullText = "";
   
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const textContent = await page.getTextContent();
     const pageText = textContent.items
       .map((item: any) => item.str)
-      .join(' ');
-    fullText += pageText + '\n';
+      .join(" ");
+    fullText += pageText + "\n";
   }
   
   return fullText;
@@ -51,65 +50,7 @@ export async function extractTextFromPDF(file: File): Promise<string> {
  * Parse Citizens Bank statement text into transactions
  */
 export function parseStatementText(text: string): Transaction[] {
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-  const transactions: ParsedTransaction[] = [];
-  
-  // Find statement period to determine year
-  const statementYear = detectStatementYear(text);
-  
-  // Track current section
-  let currentSection: 'debit' | 'credit' | 'none' = 'none';
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    
-    // Detect section headers
-    if (line.includes('ATM/Purchases') || line.includes('Other Debits') || line.includes('Debits')) {
-      currentSection = 'debit';
-      continue;
-    }
-    if (line.includes('Deposits & Credits')) {
-      currentSection = 'credit';
-      continue;
-    }
-    if (line.includes('Daily Balance') || line.includes('Balance Calculation')) {
-      currentSection = 'none';
-      continue;
-    }
-    
-    // Skip headers and non-transaction lines
-    if (line.includes('Date') && line.includes('Amount') && line.includes('Description')) continue;
-    if (line.includes('Page ') && line.includes(' of ')) continue;
-    if (line.includes('Please See Additional')) continue;
-    if (line.includes('Member FDIC')) continue;
-    if (line.includes('TRANSACTION DETAILS')) continue;
-    if (line.includes('Clearly Better Business')) continue;
-    
-    // Parse transaction lines across multiple bank formats
-    const parsedFromColumns = parseDualColumnTransaction(line, statementYear);
-    if (parsedFromColumns) {
-      transactions.push(parsedFromColumns);
-      continue;
-    }
-
-    const parsedSingleColumn = parseSingleColumnTransaction(
-      line,
-      statementYear,
-      currentSection
-    );
-
-    if (parsedSingleColumn) {
-      transactions.push(parsedSingleColumn);
-    }
-  }
-
-  // Convert to final format
-  return transactions.map(t => ({
-    date: t.date,
-    type: determineTransactionType(t.description, t.isDebit),
-    payee: cleanPayeeName(t.description),
-    amount: formatAmount(t.amount, t.isDebit)
-  }));
+  return parseStatementTextShared(text);
 }
 
 /**
@@ -290,7 +231,7 @@ export function transactionsToCSV(
   options: CsvExportOptions = {}
 ): string {
   const { includeBom = false } = options;
-  const headers = ['Date', 'Transaction Type', 'Payee / Payor', 'Amount'];
+  const headers = ["Date", "Transaction Type", "Payee / Payor", "Amount"];
   const rows = transactions.map(t => [
     t.date,
     t.type,
@@ -299,16 +240,16 @@ export function transactionsToCSV(
   ]);
 
   const csvContent = [
-    headers.join(','),
+    headers.join(","),
     ...rows.map(row => row.map(cell => {
       if (cell == null) return '';
       // Escape cells containing commas or quotes
-      if (cell.includes(',') || cell.includes('"') || cell.includes('\n')) {
+      if (cell.includes(",") || cell.includes('"') || cell.includes("\n")) {
         return `"${cell.replace(/"/g, '""')}"`;
       }
       return cell;
-    }).join(','))
-  ].join('\n');
+    }).join(","))
+  ].join("\n");
 
   return includeBom ? `\uFEFF${csvContent}` : csvContent;
 }
@@ -320,11 +261,11 @@ export function transactionsToCSV(
  */
 function normalizeAmountForCSV(amount: string): string {
   // Keep digits, decimal point, and sign
-  const sanitized = amount.replace(/[^0-9.-]/g, '');
+  const sanitized = amount.replace(/[^0-9.-]/g, "");
   const parsed = parseFloat(sanitized);
 
   if (Number.isNaN(parsed)) {
-    return '';
+    return "";
   }
 
   return parsed.toFixed(2);
@@ -334,13 +275,13 @@ function normalizeAmountForCSV(amount: string): string {
  * Download CSV file
  */
 export function downloadCSV(csvContent: string, filename: string = 'transactions.csv'): void {
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
   const url = URL.createObjectURL(blob);
   
-  link.setAttribute('href', url);
-  link.setAttribute('download', filename);
-  link.style.visibility = 'hidden';
+  link.setAttribute("href", url);
+  link.setAttribute("download", filename);
+  link.style.visibility = "hidden";
   
   document.body.appendChild(link);
   link.click();
@@ -353,15 +294,7 @@ export function downloadCSV(csvContent: string, filename: string = 'transactions
  * Convert legacy Transaction[] to CanonicalTransaction[]
  */
 export function legacyTransactionsToCanonical(transactions: Transaction[]): CanonicalTransaction[] {
-  return normalizeLegacyTransactions(
-    transactions.map(tx => ({
-      date: tx.date,
-      description: tx.payee || tx.type,
-      amount: tx.amount,
-      type: tx.type,
-      payee: tx.payee,
-    }))
-  );
+  return legacyTransactionsToCanonicalShared(transactions);
 }
 
 /**
