@@ -77,10 +77,16 @@ export default function FileUpload({
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    
+
+    // Drag-and-drop can still fire while the input is disabled; ignore drops while loading
+    // to prevent concurrent uploads/processing and related race conditions.
+    if (isLoading) {
+      return;
+    }
+
     const files = Array.from(e.dataTransfer.files);
     handleValidatedFiles(files);
-  }, [handleValidatedFiles]);
+  }, [handleValidatedFiles, isLoading]);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
