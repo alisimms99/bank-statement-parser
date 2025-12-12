@@ -345,19 +345,18 @@ export default function Home() {
                       </Button>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <span
-                            className="inline-flex"
-                            onClick={() => {
-                              if (normalizedTransactions.length === 0) {
-                                toast.warning("No transactions to export yet");
-                              }
-                            }}
-                          >
+                          <span className="inline-flex relative">
+                            {normalizedTransactions.length === 0 && (
+                              <button
+                                type="button"
+                                className="absolute inset-0 cursor-not-allowed"
+                                onClick={() => toast.warning("No transactions to export yet")}
+                                aria-label="No transactions to export yet"
+                              />
+                            )}
                             <Button
                               onClick={handleExportCSV}
-                              className={`gap-2 shadow-lg hover:shadow-xl transition-shadow ${
-                                normalizedTransactions.length === 0 ? "pointer-events-none" : ""
-                              }`}
+                              className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
                               disabled={normalizedTransactions.length === 0}
                             >
                               <Download className="w-4 h-4" />
