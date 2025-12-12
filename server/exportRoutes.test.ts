@@ -34,11 +34,45 @@ describe("exportRoutes", () => {
         {
           date: "2024-01-05",
           posted_date: "2024-01-05",
-          description: "Test Transaction",
+          description: "First Transaction",
           payee: "Test Payee",
           debit: 100.0,
           credit: 0,
           balance: 1000.0,
+          account_id: null,
+          source_bank: null,
+          statement_period: { start: null, end: null },
+          inferred_description: "Inferred First",
+          metadata: {
+            edited: true,
+            edited_at: "2024-01-05T12:00:00Z",
+          },
+        },
+        {
+          date: "2024-01-06",
+          posted_date: "2024-01-06",
+          description: "Second Transaction",
+          payee: "Test Payee",
+          debit: 0,
+          credit: 50.0,
+          balance: 1050.0,
+          account_id: null,
+          source_bank: null,
+          statement_period: { start: null, end: null },
+          inferred_description: null,
+          metadata: {
+            edited: false,
+            edited_at: null,
+          },
+        },
+        {
+          date: "2024-01-07",
+          posted_date: "2024-01-07",
+          description: "Last Transaction",
+          payee: "Test Payee",
+          debit: 10.0,
+          credit: 0,
+          balance: 1040.0,
           account_id: null,
           source_bank: null,
           statement_period: { start: null, end: null },
@@ -56,13 +90,27 @@ describe("exportRoutes", () => {
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toContain("text/csv");
       expect(res.headers["content-disposition"]).toContain("attachment");
-      expect(res.text).toContain("Date,Description,Payee,Debit,Credit,Balance,Memo");
-      expect(res.text).toContain("Test Transaction");
+      const [header, row1, row2, row3] = res.text.trim().split("\n");
+      expect(header).toBe(
+        "date,description,amount,balance,metadata_edited,metadata_edited_at,ending_balance,inferred_description",
+      );
+
+      // Validate new export columns & null -> empty string behavior
+      expect(row1).toBe(
+        "2024-01-05,First Transaction,-100.00,1000.00,true,2024-01-05T12:00:00Z,,Inferred First",
+      );
+      expect(row2).toBe(
+        "2024-01-06,Second Transaction,50.00,1050.00,false,,,Second Transaction",
+      );
+      // ending_balance is computed only for last row
+      expect(row3).toBe(
+        "2024-01-07,Last Transaction,-10.00,1040.00,,,1040.00,Last Transaction",
+      );
       
       expect(recordExportEvent).toHaveBeenCalledWith({
         exportId,
         format: "csv",
-        transactionCount: 1,
+        transactionCount: 3,
         timestamp: expect.any(Number),
         success: true,
       });

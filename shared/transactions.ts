@@ -1,4 +1,4 @@
-import type { NormalizedTransaction } from "./types";
+import type { NormalizedTransaction, TransactionMetadata } from "./types";
 
 export interface CanonicalTransaction {
   /** Customer-visible transaction date (e.g., activity date) */
@@ -24,8 +24,14 @@ export interface CanonicalTransaction {
     start: string | null;
     end: string | null;
   };
+  /** Optional ending balance for the document (or transaction-level if provided) */
+  ending_balance?: number | null;
+
+  /** Optional extracted/enriched description (can differ from raw description) */
+  inferred_description?: string | null;
+
   /** Arbitrary metadata for debugging or downstream enrichment */
-  metadata: Record<string, any>;
+  metadata?: TransactionMetadata;
 }
 
 export interface CanonicalDocument {

@@ -17,7 +17,7 @@ const baseTransaction: NormalizedTransaction = {
 };
 
 describe("toCSV", () => {
-  it("handles credit-only transactions", () => {
+  it("exports signed amount (credit positive)", () => {
     const records: NormalizedTransaction[] = [
       {
         ...baseTransaction,
@@ -30,49 +30,34 @@ describe("toCSV", () => {
     const csv = toCSV(records);
     const [, row] = csv.split("\n");
 
-    expect(row).toBe("02/10/2024,Direct Deposit,Direct Deposit,0.00,1250.50,,");
+    expect(row).toBe("2024-02-10,Direct Deposit,1250.50,,,,,Direct Deposit");
   });
 
-  it("handles debit-only transactions and strips commas", () => {
+  it("exports signed amount (debit negative)", () => {
     const records: NormalizedTransaction[] = [
       {
         ...baseTransaction,
         date: "2024-03-15",
         description: "ATM Withdrawal",
-        debit: Number("1,234.56".replace(/,/g, "")),
+        debit: 1234.56,
       },
     ];
 
     const csv = toCSV(records);
     const [, row] = csv.split("\n");
 
-    expect(row).toBe("03/15/2024,ATM Withdrawal,ATM Withdrawal,1234.56,0.00,,");
+    expect(row).toBe("2024-03-15,ATM Withdrawal,-1234.56,,,,,ATM Withdrawal");
   });
 
-  it("falls back to description when payee is null", () => {
+  it("exports edited metadata fields and coerces nulls to empty strings", () => {
     const records: NormalizedTransaction[] = [
       {
         ...baseTransaction,
-        description: "Payee Placeholder",
-        payee: null,
+        description: "Edited Tx",
         debit: 42,
-      },
-    ];
-
-    const csv = toCSV(records);
-    const [, row] = csv.split("\n");
-
-    expect(row).toBe("01/05/2024,Payee Placeholder,Payee Placeholder,42.00,0.00,,");
-  });
-
-  it("ignores edited flags in metadata while keeping other entries", () => {
-    const records: NormalizedTransaction[] = [
-      {
-        ...baseTransaction,
         metadata: {
           edited: true,
           edited_at: "2024-01-06T12:00:00Z",
-          note: "keep me",
         },
       },
     ];
@@ -80,12 +65,45 @@ describe("toCSV", () => {
     const csv = toCSV(records);
     const [, row] = csv.split("\n");
 
-    expect(row.endsWith("{\"note\":\"keep me\"}")).toBe(true);
+    expect(row).toBe("2024-01-05,Edited Tx,-42.00,,true,2024-01-06T12:00:00Z,,Edited Tx");
+  });
+
+  it("computes ending_balance for the final row when missing", () => {
+    const records: NormalizedTransaction[] = [
+      {
+        ...baseTransaction,
+        date: "2024-01-01",
+        metadata: {
+          edited: false,
+        },
+        debit: 10,
+        // Balance after first transaction
+        balance: 1000,
+      },
+      {
+        ...baseTransaction,
+        date: "2024-01-02",
+        credit: 50,
+        balance: 1050,
+      },
+    ];
+
+    const csv = toCSV(records);
+    const [, row1, row2] = csv.split("\n");
+
+    // non-last row should be blank
+    expect(row1.split(",")[6]).toBe("");
+    // last row should equal computed ending balance (starting_balance + sum(amounts))
+    // starting_balance inferred as first.balance - first.amount = 1000 - (-10) = 1010
+    // sum(amounts) = (-10 + 50) = 40; ending_balance = 1050
+    expect(row2.split(",")[6]).toBe("1050.00");
   });
 
   it("returns only headers for an empty list", () => {
     const csv = toCSV([]);
 
-    expect(csv).toBe("Date,Description,Payee,Debit,Credit,Balance,Memo");
+    expect(csv).toBe(
+      "date,description,amount,balance,metadata_edited,metadata_edited_at,ending_balance,inferred_description",
+    );
   });
 });
