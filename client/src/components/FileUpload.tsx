@@ -29,7 +29,10 @@ export default function FileUpload({
       let shouldToastTooLarge = false;
 
       files.forEach(file => {
-        if (file.type !== PDF_MIME_TYPE) {
+        const looksLikePdfByName = file.name.toLowerCase().endsWith('.pdf');
+        const isPdf = file.type === PDF_MIME_TYPE || looksLikePdfByName;
+
+        if (!isPdf) {
           shouldToastNonPdf = true;
           return;
         }
