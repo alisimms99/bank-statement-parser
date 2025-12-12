@@ -73,4 +73,11 @@ export interface DocumentAiTelemetry {
   entityCount: number;
 }
 
+export interface IngestionFailure {
+  phase: "upload" | "docai" | "normalize" | "export" | "unknown";
+  message: string;
+  ts: number;
+  hint?: string;
+}
+
 export * from "./transactions";
