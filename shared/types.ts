@@ -47,8 +47,23 @@ export interface NormalizedTransaction {
     end: string | null;
   };
   
+  /** Optional extracted/enriched description (can differ from raw description) */
+  inferred_description?: string | null;
+
+  /** Optional ending balance for the document (or transaction-level if provided) */
+  ending_balance?: number | null;
+
   /** Additional metadata (e.g., edited flag, parsing source, etc.) */
-  metadata?: Record<string, any>;
+  metadata?: TransactionMetadata;
+}
+
+export interface TransactionMetadata {
+  edited?: boolean;
+  edited_at?: string | null;
+  inferred_description?: string | null;
+
+  // Allow additional metadata keys without losing type-safety for known fields.
+  [key: string]: any;
 }
 
 export interface DocumentAiTelemetry {

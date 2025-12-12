@@ -6,7 +6,7 @@ export interface CsvExportOptions {
 }
 
 /**
- * Convert normalized transactions to CSV for QuickBooks-friendly import.
+ * Convert normalized transactions to a full-fidelity CSV export.
  */
 export function toCSV(
   records: NormalizedTransaction[],
@@ -14,22 +14,44 @@ export function toCSV(
 ): string {
   const { includeBOM = false, delimiter = "," } = options;
 
-  const headers = ["Date", "Description", "Payee", "Debit", "Credit", "Balance", "Memo"];
+  const headers = [
+    "date",
+    "description",
+    "amount",
+    "balance",
+    "metadata_edited",
+    "metadata_edited_at",
+    "ending_balance",
+    "inferred_description",
+  ];
+
+  const signedAmounts = records.map(getSignedAmount);
+  const startingBalance = inferStartingBalance(records, signedAmounts);
+  const computedEndingBalance =
+    startingBalance == null
+      ? null
+      : startingBalance + signedAmounts.reduce((sum, v) => sum + v, 0);
 
   const rows = records.map(record => {
-    const displayDate = formatDate(record.date ?? record.posted_date);
-    const payee = record.payee?.trim()
-      ? record.payee
-      : record.description ?? "";
+    const metadataEdited = formatBoolean(record.metadata?.edited);
+    const metadataEditedAt = formatString(record.metadata?.edited_at);
+
+    const inferredDescription = formatString(
+      record.inferred_description ??
+        record.metadata?.inferred_description ??
+        record.description ??
+        "",
+    );
 
     return [
-      displayDate,
-      record.description ?? "",
-      payee,
-      formatAmount(record.debit),
-      formatAmount(record.credit),
-      formatAmount(record.balance),
-      serializeMemo(record.metadata),
+      formatISODate(record.date ?? record.posted_date),
+      formatString(record.description),
+      formatNumber(getSignedAmount(record)),
+      formatNumber(record.balance),
+      metadataEdited,
+      metadataEditedAt,
+      formatEndingBalance(record, computedEndingBalance, records),
+      inferredDescription,
     ];
   });
 
@@ -49,34 +71,71 @@ function escapeCell(value: string, delimiter: string): string {
   return `"${value.replace(/\"/g, '""')}"`;
 }
 
-function formatAmount(value: number | null | undefined): string {
+function formatNumber(value: number | null | undefined): string {
   if (value == null) return "";
-  const numeric = Math.abs(Number(String(value).replace(/,/g, "")));
+  const numeric = Number(String(value).replace(/,/g, ""));
   if (!Number.isFinite(numeric)) return "";
   return numeric.toFixed(2);
 }
 
-function formatDate(value: string | null | undefined): string {
+function formatISODate(value: string | null | undefined): string {
   if (!value) return "";
-  const isoPart = value.split("T")[0];
-  const match = isoPart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return value;
-  const [, year, month, day] = match;
-  return `${month}/${day}/${year}`;
+  return value.split("T")[0];
 }
 
-function serializeMemo(metadata: Record<string, any> | undefined): string {
-  if (!metadata) return "";
+function formatString(value: unknown): string {
+  if (value == null) return "";
+  const asString = String(value);
+  return asString;
+}
 
-  const cleanedEntries = Object.entries(metadata).filter(([key]) =>
-    !["edited", "edited_at", "editedAt"].includes(key),
-  );
+function formatBoolean(value: unknown): string {
+  if (typeof value !== "boolean") return "";
+  return value ? "true" : "false";
+}
 
-  if (cleanedEntries.length === 0) return "";
+function getSignedAmount(record: NormalizedTransaction): number {
+  const debit = Number(record.debit ?? 0);
+  const credit = Number(record.credit ?? 0);
+  const signed = credit - debit;
+  return Number.isFinite(signed) ? signed : 0;
+}
 
-  try {
-    return JSON.stringify(Object.fromEntries(cleanedEntries));
-  } catch {
-    return "";
-  }
+function inferStartingBalance(
+  records: NormalizedTransaction[],
+  signedAmounts: number[],
+): number | null {
+  if (records.length === 0) return null;
+
+  const first = records[0];
+  const metaStart = toFiniteNumber(first.metadata?.starting_balance);
+  if (metaStart != null) return metaStart;
+
+  if (first.balance == null) return null;
+  const firstBalance = toFiniteNumber(first.balance);
+  if (firstBalance == null) return null;
+
+  const firstAmount = signedAmounts[0] ?? getSignedAmount(first);
+  return firstBalance - firstAmount;
+}
+
+function formatEndingBalance(
+  record: NormalizedTransaction,
+  computedEndingBalance: number | null,
+  records: NormalizedTransaction[],
+): string {
+  const explicit = toFiniteNumber(record.ending_balance);
+  if (explicit != null) return formatNumber(explicit);
+
+  const isLast = records.length > 0 && records[records.length - 1] === record;
+  if (!isLast) return "";
+  if (computedEndingBalance == null) return "";
+
+  return formatNumber(computedEndingBalance);
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (value == null) return null;
+  const parsed = Number(String(value).replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
 }
