@@ -9,6 +9,7 @@
     "build:prod": "bash ./scripts/build-prod.sh",
     "build:local": "bash ./scripts/build-local.sh",
     "start": "NODE_ENV=production node dist/index.js",
+    "start:preview": "bash ./scripts/start-preview.sh",
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",

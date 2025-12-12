@@ -4,6 +4,7 @@ import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
 import type { NormalizedTransaction } from "@shared/types";
 import { recordExportEvent, type ExportFormat } from "./_core/exportMetrics";
+import { logEvent, serializeError } from "./_core/log";
 
 // In-memory store for transactions (keyed by UUID)
 // In production, this could be replaced with Redis or a database
@@ -176,6 +177,7 @@ export function registerExportRoutes(app: Express): void {
     // Check export status
     const status = checkExportStatus(id);
     if (!status.found) {
+      logEvent("export_csv", { exportId: id, includeBOM, success: false, status: 404 }, "warn");
       recordExportEvent({
         exportId: id,
         format: "csv",
@@ -192,6 +194,7 @@ export function registerExportRoutes(app: Express): void {
     }
     
     if (status.expired) {
+      logEvent("export_csv", { exportId: id, includeBOM, success: false, status: 410, error: "expired" }, "warn");
       recordExportEvent({
         exportId: id,
         format: "csv",
@@ -210,6 +213,7 @@ export function registerExportRoutes(app: Express): void {
     const transactions = getStoredTransactions(id);
     
     if (!transactions || transactions.length === 0) {
+      logEvent("export_csv", { exportId: id, includeBOM, success: false, status: 404 }, "warn");
       recordExportEvent({
         exportId: id,
         format: "csv",
@@ -235,6 +239,14 @@ export function registerExportRoutes(app: Express): void {
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.send(csv);
+
+      logEvent("export_csv", {
+        exportId: id,
+        includeBOM,
+        success: true,
+        status: 200,
+        transactionCount: transactions.length,
+      });
       
       // Log successful export
       recordExportEvent({
@@ -245,7 +257,11 @@ export function registerExportRoutes(app: Express): void {
         success: true,
       });
     } catch (error) {
-      console.error("Error generating CSV export", error);
+      logEvent(
+        "export_csv",
+        { exportId: id, includeBOM, success: false, status: 500, error: serializeError(error) },
+        "error"
+      );
       
       recordExportEvent({
         exportId: id,
@@ -273,6 +289,7 @@ export function registerExportRoutes(app: Express): void {
     // Check export status
     const status = checkExportStatus(id);
     if (!status.found) {
+      logEvent("export_pdf", { exportId: id, success: false, status: 404 }, "warn");
       recordExportEvent({
         exportId: id,
         format: "pdf",
@@ -289,6 +306,7 @@ export function registerExportRoutes(app: Express): void {
     }
     
     if (status.expired) {
+      logEvent("export_pdf", { exportId: id, success: false, status: 410, error: "expired" }, "warn");
       recordExportEvent({
         exportId: id,
         format: "pdf",
@@ -307,6 +325,7 @@ export function registerExportRoutes(app: Express): void {
     const transactions = getStoredTransactions(id);
     
     if (!transactions || transactions.length === 0) {
+      logEvent("export_pdf", { exportId: id, success: false, status: 404 }, "warn");
       recordExportEvent({
         exportId: id,
         format: "pdf",
@@ -331,6 +350,13 @@ export function registerExportRoutes(app: Express): void {
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.send(pdfBuffer);
+
+      logEvent("export_pdf", {
+        exportId: id,
+        success: true,
+        status: 200,
+        transactionCount: transactions.length,
+      });
       
       // Log successful export
       recordExportEvent({
@@ -341,7 +367,7 @@ export function registerExportRoutes(app: Express): void {
         success: true,
       });
     } catch (error) {
-      console.error("Error generating PDF export", error);
+      logEvent("export_pdf", { exportId: id, success: false, status: 500, error: serializeError(error) }, "error");
       
       recordExportEvent({
         exportId: id,

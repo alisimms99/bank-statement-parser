@@ -1,5 +1,6 @@
 import type { CanonicalDocument } from "@shared/transactions";
 import type { DocumentAiTelemetry, IngestionFailure } from "@shared/types";
+import { apiUrl } from "./apiBaseUrl";
 
 export type IngestionSource = "documentai" | "legacy" | "error";
 
@@ -21,7 +22,7 @@ export async function ingestWithDocumentAI(
   const contentBase64 = await fileToBase64(file);
 
   try {
-    const response = await fetch("/api/ingest", {
+    const response = await fetch(apiUrl("/api/ingest"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

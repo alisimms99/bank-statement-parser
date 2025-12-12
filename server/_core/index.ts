@@ -10,6 +10,55 @@ import { serveStatic, setupVite } from "./vite";
 import { registerIngestionRoutes } from "../ingestRoutes";
 import { registerExportRoutes } from "../exportRoutes";
 import { applySecurityHeaders, uploadValidationMiddleware } from "../middleware/security";
+import { assertEnvOnStartup, getServerEnv } from "./env";
+import { logEvent } from "./log";
+
+function applyCors(app: express.Express, corsAllowOrigin: string | null): void {
+  if (!corsAllowOrigin) return;
+
+  const allowed = corsAllowOrigin
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const allowAny = allowed.includes("*");
+  const allowCredentials = !allowAny; // "*" cannot be combined with credentials
+
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    const requestedHeaders = req.headers["access-control-request-headers"];
+    const requestedMethod = req.headers["access-control-request-method"];
+
+    if (allowAny) {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+    } else if (typeof origin === "string" && allowed.includes(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+    }
+
+    if (allowCredentials) {
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+    }
+
+    if (requestedHeaders) {
+      res.setHeader("Access-Control-Allow-Headers", String(requestedHeaders));
+    } else {
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+
+    if (requestedMethod) {
+      res.setHeader("Access-Control-Allow-Methods", String(requestedMethod));
+    } else {
+      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    }
+
+    if (req.method === "OPTIONS") {
+      return res.status(204).end();
+    }
+
+    next();
+  });
+}
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -31,6 +80,10 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  // Fail fast on production misconfigurations.
+  assertEnvOnStartup();
+  const serverEnv = getServerEnv();
+
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
@@ -38,6 +91,14 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   app.use(applySecurityHeaders);
   app.use(uploadValidationMiddleware);
+
+  applyCors(app, serverEnv.corsAllowOrigin);
+
+  // Health check endpoint for Cloud Run / orchestrators
+  app.get("/api/health", (_req, res) => {
+    res.json({ ok: true, ts: new Date() });
+  });
+
   registerIngestionRoutes(app);
   registerExportRoutes(app);
   // OAuth callback under /api/oauth/callback
@@ -57,15 +118,16 @@ async function startServer() {
     serveStatic(app);
   }
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+  const preferredPort = serverEnv.port;
+  const port =
+    process.env.NODE_ENV === "production" ? preferredPort : await findAvailablePort(preferredPort);
 
-  if (port !== preferredPort) {
+  if (process.env.NODE_ENV !== "production" && port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
   server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+    logEvent("server_listen", { port, env: process.env.NODE_ENV ?? "unknown" });
   });
 }
 

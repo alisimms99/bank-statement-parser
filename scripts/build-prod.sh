@@ -6,6 +6,9 @@ cd "$ROOT_DIR"
 
 echo "PRODUCTION BUILD START"
 
+# This repo builds client+server together into ./dist
+# - client bundle -> dist/public
+# - server bundle  -> dist/index.js
 pnpm install --frozen-lockfile
 pnpm check
 pnpm build
@@ -17,7 +20,7 @@ if [ -d "client/dist" ]; then
   cp -R "client/dist"/* "dist/public/" || true
 fi
 
-# Optional: create a Cloud-Run-ready artifact folder.
+# Create a Cloud-Run-ready artifact folder with production-only deps.
 rm -rf "prod"
 mkdir -p "prod"
 cp -R "dist" "prod/"
@@ -28,4 +31,8 @@ if [ -f "pnpm-lock.yaml" ]; then
   cp "pnpm-lock.yaml" "prod/"
 fi
 
-echo "PRODUCTION ARTIFACT READY"
+echo "INSTALLING PRODUCTION DEPENDENCIES (prod/)"
+(cd "prod" && pnpm install --prod --frozen-lockfile)
+
+echo "STARTING PRODUCTION SERVER (preview)"
+NODE_ENV=production node "prod/dist/index.js"

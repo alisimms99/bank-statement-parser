@@ -8,6 +8,7 @@ import type { CanonicalDocument, CanonicalTransaction } from "@shared/transactio
 import type { DocumentAiTelemetry, IngestionFailure } from "@shared/types";
 import { storeTransactions } from "./exportRoutes";
 import { recordIngestFailure, recordIngestMetric } from "./_core/metrics";
+import { logEvent, serializeError } from "./_core/log";
 
 // Support both JSON and multipart form data
 const upload = multer({ storage: multer.memoryStorage() });
@@ -116,6 +117,11 @@ export function registerIngestionRoutes(app: Express) {
         hint: `Request rejected with HTTP ${parsed.status}`,
       };
       recordIngestFailure(failure);
+      logEvent(
+        "ingest_failure",
+        { phase: failure.phase, status: parsed.status, failure, ip: req.ip },
+        "warn"
+      );
       return res.status(parsed.status).json({ error: parsed.error, source: "error", failure });
     }
 
@@ -123,6 +129,12 @@ export function registerIngestionRoutes(app: Express) {
 
     // Track start time for telemetry (must be outside try block for error path)
     const startTime = Date.now();
+    logEvent("ingest_start", {
+      fileName,
+      documentType,
+      bytes: buffer.length,
+      contentType: req.headers["content-type"],
+    });
 
     try {
       // Get config first to check if Document AI is enabled
@@ -145,7 +157,6 @@ export function registerIngestionRoutes(app: Express) {
           docAIDocument = docAIResult.document;
           processorId = docAIResult.processorId;
           processorType = docAIResult.processorType;
-          console.log(`[Ingestion] Document AI succeeded for ${fileName}: ${docAIResult.document.transactions.length} transactions using processor ${docAIResult.processorId} (${docAIResult.processorType})`);
           
           // Generate telemetry for successful Document AI
           docAiTelemetry = {
@@ -156,11 +167,20 @@ export function registerIngestionRoutes(app: Express) {
           };
         } else {
           // Log structured error info
-          console.warn(`[Ingestion] Document AI failed for ${fileName}:`, {
-            code: docAIResult.error.code,
-            message: docAIResult.error.message,
-            processorId: docAIResult.error.processorId,
-          });
+          logEvent(
+            "ingest_failure",
+            {
+              phase: "docai",
+              fileName,
+              documentType,
+              code: docAIResult.error.code,
+              message: docAIResult.error.message,
+              processorId: docAIResult.error.processorId,
+              details: docAIResult.error.details,
+              durationMs: latencyMs,
+            },
+            "warn"
+          );
 
           docAiFailure = {
             phase: "docai",
@@ -201,6 +221,17 @@ export function registerIngestionRoutes(app: Express) {
           timestamp: Date.now(),
           fallbackReason: null,
         });
+
+        logEvent("ingest_complete", {
+          source: "documentai",
+          fileName,
+          documentType,
+          processorId,
+          processorType,
+          transactionCount: docAIDocument.transactions.length,
+          durationMs,
+          exportId,
+        });
         
         return res.json({ 
           source: "documentai", 
@@ -215,7 +246,6 @@ export function registerIngestionRoutes(app: Express) {
       // Document AI failed or disabled - use legacy fallback
       // "disabled" if Document AI is not enabled, "failed" if enabled but returned null/empty
       const fallbackReason = !isDocAIEnabled ? "disabled" : "failed";
-      console.log(`[Ingestion] Document AI ${fallbackReason} for ${fileName}, using legacy parser`);
 
       // Process with legacy parser
       const legacyStartTime = Date.now();
@@ -243,6 +273,16 @@ export function registerIngestionRoutes(app: Express) {
         fallbackReason,
       });
 
+      logEvent("ingest_complete", {
+        source: "legacy",
+        fileName,
+        documentType,
+        transactionCount: legacyTransactions.length,
+        durationMs: Date.now() - startTime,
+        fallbackReason,
+        exportId,
+      });
+
       return res.json({
         source: "legacy",
         fallback: fallbackReason,
@@ -258,7 +298,11 @@ export function registerIngestionRoutes(app: Express) {
         docAiFailure,
       });
     } catch (error) {
-      console.error("Error processing ingestion", { fileName, documentType, error });
+      logEvent(
+        "ingest_failure",
+        { phase: "unknown", fileName, documentType, error: serializeError(error), durationMs: Date.now() - startTime },
+        "error"
+      );
       const errorDurationMs = Date.now() - startTime;
       const failure: IngestionFailure = {
         phase: "unknown",
