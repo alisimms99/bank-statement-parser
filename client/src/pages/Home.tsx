@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import FileUpload from "@/components/FileUpload";
 import TransactionTable from "@/components/TransactionTable";
 import DebugPanel, { type IngestionDebugData } from "@/components/ingestion/DebugPanel";
@@ -155,34 +156,36 @@ export default function Home() {
   };
 
   const handleExportCSV = async () => {
-    if (normalizedTransactions.length === 0) {
-      toast.error('No transactions to export');
+    if (!normalizedTransactions.length) {
+      toast.warning("No transactions to export yet");
       return;
     }
 
-    // Use backend export endpoint if exportId is available
-    if (exportId) {
-      try {
+    try {
+      // Use backend export endpoint if exportId is available
+      if (exportId) {
         const bomParam = includeBom ? "?bom=true" : "";
         const url = `/api/export/${exportId}/csv${bomParam}`;
-        
+
         // Use window.location for download to trigger browser download
         window.location.href = url;
-        toast.success('CSV file download started');
-      } catch (error) {
-        console.error("Error downloading CSV from backend", error);
-        toast.error('Failed to download CSV from backend, falling back to client-side export');
-        // Fallback to client-side export
-        const csv = toCSV(normalizedTransactions, { includeBOM: includeBom });
-        const timestamp = new Date().toISOString().split('T')[0];
-        downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
+        toast.success("CSV exported successfully");
+        return;
       }
-    } else {
+
       // Fallback to client-side export if no exportId
       const csv = toCSV(normalizedTransactions, { includeBOM: includeBom });
-      const timestamp = new Date().toISOString().split('T')[0];
+      if (!csv || csv.trim().length === 0) {
+        toast.error("Nothing to export");
+        return;
+      }
+
+      const timestamp = new Date().toISOString().split("T")[0];
       downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
-      toast.success('CSV file downloaded successfully');
+      toast.success("CSV exported successfully");
+    } catch (error) {
+      console.error("Error exporting CSV", error);
+      toast.error("Nothing to export");
     }
   };
 
@@ -340,14 +343,30 @@ export default function Home() {
                         <Eye className="w-4 h-4" />
                         Preview Parse Results
                       </Button>
-                      <Button
-                        onClick={handleExportCSV}
-                        className="gap-2 shadow-lg hover:shadow-xl transition-shadow"
-                        disabled={normalizedTransactions.length === 0}
-                      >
-                        <Download className="w-4 h-4" />
-                        Export to CSV
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            className="inline-flex"
+                            onClick={() => {
+                              if (normalizedTransactions.length === 0) {
+                                toast.warning("No transactions to export yet");
+                              }
+                            }}
+                          >
+                            <Button
+                              onClick={handleExportCSV}
+                              className={`gap-2 shadow-lg hover:shadow-xl transition-shadow ${
+                                normalizedTransactions.length === 0 ? "pointer-events-none" : ""
+                              }`}
+                              disabled={normalizedTransactions.length === 0}
+                            >
+                              <Download className="w-4 h-4" />
+                              Export to CSV
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>Export normalized transactions as CSV</TooltipContent>
+                      </Tooltip>
                       <Button
                         onClick={handleExportPDF}
                         variant="outline"
