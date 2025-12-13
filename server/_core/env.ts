@@ -23,54 +23,77 @@ export function readEnvOrFile(name: string): string {
   const direct = process.env[name];
   if (direct && direct.trim()) return direct;
 
-  const filePath = process.env[`${name}_FILE`];
+  const fileKey = `${name}_FILE`;
+  const filePath = process.env[fileKey];
   if (!filePath || !filePath.trim()) return "";
 
   try {
     if (!fs.existsSync(filePath)) return "";
-    // Trim to remove common trailing newline from secret files.
+    // Secret files often contain trailing newline; trim for safety.
     return fs.readFileSync(filePath, "utf8").trim();
   } catch (error) {
-    console.warn(`Failed to read ${name}_FILE`, error);
-    return "";
+    console.warn(`Failed to read secret file for ${name} (${fileKey})`, error);
   }
+
+  return "";
 }
 
 export const ENV = {
+  // App + Auth
   appId: process.env.VITE_APP_ID ?? "",
   // Cloud Run Secret Manager supports env vars OR mounted files. We support both:
   // - JWT_SECRET=... (env var)
   // - JWT_SECRET_FILE=/secrets/jwt (file mount path)
   cookieSecret: readEnvOrFile("JWT_SECRET"),
   cookieSecret: process.env.JWT_SECRET ?? "",
+  cookieSecret: readEnvOrFile("JWT_SECRET"),
+
+  // DB
   databaseUrl: readEnvOrFile("DATABASE_URL"),
+
+  // OAuth / Identity
   oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
+
+  // Runtime mode
   isProduction: process.env.NODE_ENV === "production",
+
+  // Forge
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: readEnvOrFile("BUILT_IN_FORGE_API_KEY"),
   // Deployment / Document AI (preferred Cloud Run names + backwards-compatible aliases)
+  forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+
+  // Server
   port: process.env.PORT ?? "",
   corsAllowOrigin: process.env.CORS_ALLOW_ORIGIN ?? "",
+
+  // Project / Location
   gcpProjectId: process.env.GOOGLE_PROJECT_ID ?? process.env.GCP_PROJECT_ID ?? "",
-  gcpLocation: process.env.DOCAI_LOCATION ?? process.env.GCP_LOCATION ?? "us", // Document AI default location
-  // If DOCAI_PROCESSOR_ID is set, treat it as a generic fallback processor ID.
+
+  gcpLocation: process.env.DOCAI_LOCATION ?? process.env.GCP_LOCATION ?? "us",
+
+  // Processors
   docAiProcessorId: process.env.DOCAI_PROCESSOR_ID ?? "",
+
   gcpBankProcessorId:
     process.env.DOC_AI_BANK_PROCESSOR_ID ??
     process.env.GCP_BANK_PROCESSOR_ID ??
     process.env.DOCAI_PROCESSOR_ID ??
     "",
+
   gcpInvoiceProcessorId:
     process.env.DOC_AI_INVOICE_PROCESSOR_ID ??
     process.env.GCP_INVOICE_PROCESSOR_ID ??
     process.env.DOCAI_PROCESSOR_ID ??
     "",
+
   gcpOcrProcessorId:
     process.env.DOC_AI_OCR_PROCESSOR_ID ??
     process.env.GCP_OCR_PROCESSOR_ID ??
     process.env.DOCAI_PROCESSOR_ID ??
     "",
+
   gcpFormProcessorId:
     process.env.DOC_AI_FORM_PROCESSOR_ID ??
     process.env.GCP_FORM_PROCESSOR_ID ??
@@ -80,7 +103,14 @@ export const ENV = {
   enableDocAi: process.env.ENABLE_DOC_AI === "true",
   gcpServiceAccountJson: readEnvOrFile("GCP_SERVICE_ACCOUNT_JSON"),
   // This value is itself a file path (e.g. a Cloud Run secret mount path like /secrets/sa.json)
+
+  // Credentials / Secrets
+  gcpCredentialsJson: process.env.GCP_DOCUMENTAI_CREDENTIALS ?? "",
+  gcpServiceAccountJson: process.env.GCP_SERVICE_ACCOUNT_JSON ?? "",
   gcpServiceAccountPath: process.env.GCP_SERVICE_ACCOUNT_PATH ?? "",
+
+  // Flags
+  enableDocAi: process.env.ENABLE_DOC_AI === "true",
 };
 
 export type DocumentAiProcessorType = "bank" | "invoice" | "ocr" | "form";
