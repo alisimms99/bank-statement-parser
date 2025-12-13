@@ -60,7 +60,8 @@ export const ENV = {
   gcpCredentialsJson: readEnvOrFile("GCP_DOCUMENTAI_CREDENTIALS"),
   enableDocAi: process.env.ENABLE_DOC_AI === "true",
   gcpServiceAccountJson: readEnvOrFile("GCP_SERVICE_ACCOUNT_JSON"),
-  gcpServiceAccountPath: readEnvOrFile("GCP_SERVICE_ACCOUNT_PATH"),
+  // This value is itself a file path (e.g. a Cloud Run secret mount path like /secrets/sa.json)
+  gcpServiceAccountPath: process.env.GCP_SERVICE_ACCOUNT_PATH ?? "",
 };
 
 export type DocumentAiProcessorType = "bank" | "invoice" | "ocr" | "form";

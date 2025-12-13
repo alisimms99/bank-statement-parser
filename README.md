@@ -103,7 +103,7 @@ This app reads config from environment variables. On Cloud Run, you should provi
   - Credentials (choose one):
     - Use Cloud Run's attached service account (recommended), OR
     - Provide key JSON via Secret Manager and set `GCP_SERVICE_ACCOUNT_JSON` / `GCP_SERVICE_ACCOUNT_JSON_FILE`, OR
-    - Provide key file path via `GCP_SERVICE_ACCOUNT_PATH` / `GCP_SERVICE_ACCOUNT_PATH_FILE`
+    - Provide key file path via `GCP_SERVICE_ACCOUNT_PATH`
 
 ### Deploy
 
