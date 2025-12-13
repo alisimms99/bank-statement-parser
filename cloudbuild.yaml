@@ -1,0 +1,46 @@
+# Cloud Build config for Cloud Run deployment
+# Builds production artifact, builds/pushes Docker image, deploys to Cloud Run.
+
+steps:
+  # Build prod artifact (client + server) into ./prod
+  - name: "node:20-bookworm-slim"
+    id: "build-prod"
+    entrypoint: "bash"
+    args:
+      - "-lc"
+      - |
+        set -euo pipefail
+        corepack enable
+        corepack prepare pnpm@10.4.1 --activate
+        pnpm build:prod
+
+  # Build the Docker image
+  - name: "gcr.io/cloud-builders/docker"
+    id: "docker-build"
+    args:
+      - "build"
+      - "--tag=us-central1-docker.pkg.dev/ojpm-bank-parser/bank-parser/bank-parser:latest"
+      - "."
+
+  # Push the Docker image to Artifact Registry
+  - name: "gcr.io/cloud-builders/docker"
+    id: "docker-push"
+    args:
+      - "push"
+      - "us-central1-docker.pkg.dev/ojpm-bank-parser/bank-parser/bank-parser:latest"
+
+  # Deploy to Cloud Run
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    id: "cloud-run-deploy"
+    entrypoint: "gcloud"
+    args:
+      - "run"
+      - "deploy"
+      - "bank-statement-parser"
+      - "--image=us-central1-docker.pkg.dev/ojpm-bank-parser/bank-parser/bank-parser:latest"
+      - "--region=us-central1"
+      - "--service-account=docai-runner@ojpm-bank-parser.iam.gserviceaccount.com"
+      - "--allow-unauthenticated=false"
+
+images:
+  - "us-central1-docker.pkg.dev/ojpm-bank-parser/bank-parser/bank-parser:latest"

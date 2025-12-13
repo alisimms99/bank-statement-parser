@@ -58,6 +58,67 @@ pnpm dev
 
 The application will be available at `http://localhost:5173`.
 
+## Cloud Run Deployment (GCP)
+
+This repo supports deploying the server (and static UI) to Google Cloud Run using Artifact Registry + Cloud Build.
+
+### Prerequisites (one-time GCP setup)
+
+- **Enable APIs** (project: `ojpm-bank-parser`):
+  - Cloud Run (`run.googleapis.com`)
+  - Artifact Registry (`artifactregistry.googleapis.com`)
+  - Cloud Build (`cloudbuild.googleapis.com`)
+  - Secret Manager (`secretmanager.googleapis.com`)
+  - Document AI (`documentai.googleapis.com`) (only if using Document AI ingestion)
+
+- **Create Artifact Registry Docker repo** (region: `us-central1`, repo: `bank-parser`):
+  - Image pushed as: `us-central1-docker.pkg.dev/ojpm-bank-parser/bank-parser/bank-parser:latest`
+
+- **IAM**
+  - **Runtime service account**: `docai-runner@ojpm-bank-parser.iam.gserviceaccount.com`
+    - Needs access to any APIs/resources it uses at runtime, typically:
+      - `roles/documentai.apiUser` (if `ENABLE_DOC_AI=true`)
+      - `roles/secretmanager.secretAccessor` (if reading secrets from Secret Manager)
+      - Any additional roles required by your configured integrations (DB, storage, etc.)
+  - **Deployer (Cloud Build)** must be able to:
+    - Push images to Artifact Registry (e.g. `roles/artifactregistry.writer`)
+    - Deploy Cloud Run services (e.g. `roles/run.admin`)
+    - Impersonate the runtime service account (e.g. `roles/iam.serviceAccountUser` on `docai-runner@...`)
+
+### Required secrets / env
+
+This app reads config from environment variables. On Cloud Run, you should provide sensitive values via Secret Manager.
+
+- **JWT / cookie signing**
+  - `JWT_SECRET` (or mount a secret file and set `JWT_SECRET_FILE=/path/to/file`)
+- **Database**
+  - `DATABASE_URL` (or `DATABASE_URL_FILE=/path/to/file`)
+- **Document AI (optional)**
+  - `ENABLE_DOC_AI=true|false`
+  - `GOOGLE_PROJECT_ID`
+  - `DOCAI_LOCATION` (default `us`)
+  - One of:
+    - `DOCAI_PROCESSOR_ID` (fallback)
+    - or specific processor IDs: `DOC_AI_BANK_PROCESSOR_ID`, `DOC_AI_INVOICE_PROCESSOR_ID`, `DOC_AI_OCR_PROCESSOR_ID`, `DOC_AI_FORM_PROCESSOR_ID`
+  - Credentials (choose one):
+    - Use Cloud Run's attached service account (recommended), OR
+    - Provide key JSON via Secret Manager and set `GCP_SERVICE_ACCOUNT_JSON` / `GCP_SERVICE_ACCOUNT_JSON_FILE`, OR
+    - Provide key file path via `GCP_SERVICE_ACCOUNT_PATH` / `GCP_SERVICE_ACCOUNT_PATH_FILE`
+
+### Deploy
+
+- **Via Cloud Build** (recommended):
+
+```bash
+gcloud builds submit --config cloudbuild.yaml .
+```
+
+- **Via local script**:
+
+```bash
+./scripts/deploy-cloudrun.sh
+```
+
 ## How to Use
 
 ### Uploading a Statement

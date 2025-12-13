@@ -1,15 +1,35 @@
 import fs from "fs";
 import { z } from "zod";
 
+function readEnvOrFile(key: string, fileKey = `${key}_FILE`): string {
+  const direct = process.env[key];
+  if (typeof direct === "string" && direct.length > 0) return direct;
+
+  const filePath = process.env[fileKey];
+  if (typeof filePath !== "string" || filePath.trim().length === 0) return "";
+
+  try {
+    if (!fs.existsSync(filePath)) return "";
+    // Secret files typically end with a newline; trim it.
+    return fs.readFileSync(filePath, "utf8").trim();
+  } catch (error) {
+    console.warn(`Failed to read secret file for ${key} (${fileKey})`, error);
+    return "";
+  }
+}
+
 export const ENV = {
   appId: process.env.VITE_APP_ID ?? "",
-  cookieSecret: process.env.JWT_SECRET ?? "",
-  databaseUrl: process.env.DATABASE_URL ?? "",
+  // Cloud Run Secret Manager supports env vars OR mounted files. We support both:
+  // - JWT_SECRET=... (env var)
+  // - JWT_SECRET_FILE=/secrets/jwt (file mount path)
+  cookieSecret: readEnvOrFile("JWT_SECRET"),
+  databaseUrl: readEnvOrFile("DATABASE_URL"),
   oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
-  forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  forgeApiKey: readEnvOrFile("BUILT_IN_FORGE_API_KEY"),
   // Deployment / Document AI (preferred Cloud Run names + backwards-compatible aliases)
   port: process.env.PORT ?? "",
   corsAllowOrigin: process.env.CORS_ALLOW_ORIGIN ?? "",
@@ -37,10 +57,10 @@ export const ENV = {
     process.env.GCP_FORM_PROCESSOR_ID ??
     process.env.DOCAI_PROCESSOR_ID ??
     "",
-  gcpCredentialsJson: process.env.GCP_DOCUMENTAI_CREDENTIALS ?? "",
+  gcpCredentialsJson: readEnvOrFile("GCP_DOCUMENTAI_CREDENTIALS"),
   enableDocAi: process.env.ENABLE_DOC_AI === "true",
-  gcpServiceAccountJson: process.env.GCP_SERVICE_ACCOUNT_JSON ?? "",
-  gcpServiceAccountPath: process.env.GCP_SERVICE_ACCOUNT_PATH ?? "",
+  gcpServiceAccountJson: readEnvOrFile("GCP_SERVICE_ACCOUNT_JSON"),
+  gcpServiceAccountPath: readEnvOrFile("GCP_SERVICE_ACCOUNT_PATH"),
 };
 
 export type DocumentAiProcessorType = "bank" | "invoice" | "ocr" | "form";
