@@ -18,9 +18,10 @@ export function readEnvOrFile(name: string): string {
     // Secret files often contain trailing newline; trim for safety.
     return fs.readFileSync(filePath, "utf8").trim();
   } catch (error) {
-    console.warn(`Failed to read secret file for ${name} (${fileKey})`, error);
+    console.warn(`Failed to read ${name}_FILE`, error);
   }
 
+  // Return empty string when missing or unreadable
   return "";
 }
 
