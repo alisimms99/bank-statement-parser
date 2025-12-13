@@ -5,8 +5,9 @@ function readEnvOrFile(key: string, fileKey = `${key}_FILE`): string {
   const direct = process.env[key];
   if (typeof direct === "string" && direct.length > 0) return direct;
 
-  const filePath = process.env[fileKey];
-  if (typeof filePath !== "string" || filePath.trim().length === 0) return "";
+  const filePathRaw = process.env[fileKey];
+  const filePath = typeof filePathRaw === "string" ? filePathRaw.trim() : "";
+  if (filePath.length === 0) return "";
 
   try {
     if (!fs.existsSync(filePath)) return "";
