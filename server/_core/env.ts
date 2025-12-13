@@ -23,45 +23,67 @@ export function readEnvOrFile(name: string): string {
 }
 
 export const ENV = {
+  // App + Auth
   appId: process.env.VITE_APP_ID ?? "",
-  cookieSecret: process.env.JWT_SECRET ?? "",
+  cookieSecret: readEnvOrFile("JWT_SECRET"),
+
+  // DB
   databaseUrl: readEnvOrFile("DATABASE_URL"),
+
+  // OAuth / Identity
   oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
+
+  // Runtime mode
   isProduction: process.env.NODE_ENV === "production",
+
+  // Forge
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
-  // Deployment / Document AI (preferred Cloud Run names + backwards-compatible aliases)
+
+  // Server
   port: process.env.PORT ?? "",
   corsAllowOrigin: process.env.CORS_ALLOW_ORIGIN ?? "",
+
+  // Project / Location
   gcpProjectId: process.env.GOOGLE_PROJECT_ID ?? process.env.GCP_PROJECT_ID ?? "",
-  gcpLocation: process.env.DOCAI_LOCATION ?? process.env.GCP_LOCATION ?? "us", // Document AI default location
-  // If DOCAI_PROCESSOR_ID is set, treat it as a generic fallback processor ID.
+
+  gcpLocation: process.env.DOCAI_LOCATION ?? process.env.GCP_LOCATION ?? "us",
+
+  // Processors
   docAiProcessorId: process.env.DOCAI_PROCESSOR_ID ?? "",
+
   gcpBankProcessorId:
     process.env.DOC_AI_BANK_PROCESSOR_ID ??
     process.env.GCP_BANK_PROCESSOR_ID ??
     process.env.DOCAI_PROCESSOR_ID ??
     "",
+
   gcpInvoiceProcessorId:
     process.env.DOC_AI_INVOICE_PROCESSOR_ID ??
     process.env.GCP_INVOICE_PROCESSOR_ID ??
     process.env.DOCAI_PROCESSOR_ID ??
     "",
+
   gcpOcrProcessorId:
     process.env.DOC_AI_OCR_PROCESSOR_ID ??
     process.env.GCP_OCR_PROCESSOR_ID ??
     process.env.DOCAI_PROCESSOR_ID ??
     "",
+
   gcpFormProcessorId:
     process.env.DOC_AI_FORM_PROCESSOR_ID ??
     process.env.GCP_FORM_PROCESSOR_ID ??
     process.env.DOCAI_PROCESSOR_ID ??
     "",
+
+  // Credentials / Secrets
   gcpCredentialsJson: process.env.GCP_DOCUMENTAI_CREDENTIALS ?? "",
-  enableDocAi: process.env.ENABLE_DOC_AI === "true",
   gcpServiceAccountJson: process.env.GCP_SERVICE_ACCOUNT_JSON ?? "",
   gcpServiceAccountPath: process.env.GCP_SERVICE_ACCOUNT_PATH ?? "",
+
+  // Flags
+  enableDocAi: process.env.ENABLE_DOC_AI === "true",
 };
 
 export type DocumentAiProcessorType = "bank" | "invoice" | "ocr" | "form";
