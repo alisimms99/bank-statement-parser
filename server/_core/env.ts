@@ -9,17 +9,19 @@ export function readEnvOrFile(name: string): string {
   const direct = process.env[name];
   if (direct && direct.trim()) return direct;
 
-  const filePath = process.env[`${name}_FILE`];
+  const fileKey = `${name}_FILE`;
+  const filePath = process.env[fileKey];
   if (!filePath || !filePath.trim()) return "";
 
   try {
     if (!fs.existsSync(filePath)) return "";
-    // Trim to remove common trailing newline from secret files.
+    // Secret files often contain trailing newline; trim for safety.
     return fs.readFileSync(filePath, "utf8").trim();
   } catch (error) {
-    console.warn(`Failed to read ${name}_FILE`, error);
-    return "";
+    console.warn(`Failed to read secret file for ${name} (${fileKey})`, error);
   }
+
+  return "";
 }
 
 export const ENV = {

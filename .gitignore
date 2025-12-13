@@ -31,6 +31,10 @@ prod/
 ehthumbs.db
 Thumbs.db
 
+# Ignore accidental core dumps
+core
+*.core
+
 # Logs
 logs
 *.log
