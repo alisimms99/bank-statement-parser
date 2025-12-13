@@ -1,10 +1,31 @@
 import fs from "fs";
 import { z } from "zod";
 
+/**
+ * Reads an env var directly, or falls back to <NAME>_FILE which should contain
+ * a filesystem path to a secret (Cloud Run Secret Manager convention).
+ */
+export function readEnvOrFile(name: string): string {
+  const direct = process.env[name];
+  if (direct && direct.trim()) return direct;
+
+  const filePath = process.env[`${name}_FILE`];
+  if (!filePath || !filePath.trim()) return "";
+
+  try {
+    if (!fs.existsSync(filePath)) return "";
+    // Trim to remove common trailing newline from secret files.
+    return fs.readFileSync(filePath, "utf8").trim();
+  } catch (error) {
+    console.warn(`Failed to read ${name}_FILE`, error);
+    return "";
+  }
+}
+
 export const ENV = {
   appId: process.env.VITE_APP_ID ?? "",
   cookieSecret: process.env.JWT_SECRET ?? "",
-  databaseUrl: process.env.DATABASE_URL ?? "",
+  databaseUrl: readEnvOrFile("DATABASE_URL"),
   oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   isProduction: process.env.NODE_ENV === "production",
