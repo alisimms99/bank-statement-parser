@@ -15,6 +15,23 @@ function readEnvOrFile(key: string, fileKey = `${key}_FILE`): string {
     return fs.readFileSync(filePath, "utf8").trim();
   } catch (error) {
     console.warn(`Failed to read secret file for ${key} (${fileKey})`, error);
+/**
+ * Reads an env var directly, or falls back to <NAME>_FILE which should contain
+ * a filesystem path to a secret (Cloud Run Secret Manager convention).
+ */
+export function readEnvOrFile(name: string): string {
+  const direct = process.env[name];
+  if (direct && direct.trim()) return direct;
+
+  const filePath = process.env[`${name}_FILE`];
+  if (!filePath || !filePath.trim()) return "";
+
+  try {
+    if (!fs.existsSync(filePath)) return "";
+    // Trim to remove common trailing newline from secret files.
+    return fs.readFileSync(filePath, "utf8").trim();
+  } catch (error) {
+    console.warn(`Failed to read ${name}_FILE`, error);
     return "";
   }
 }
@@ -25,6 +42,7 @@ export const ENV = {
   // - JWT_SECRET=... (env var)
   // - JWT_SECRET_FILE=/secrets/jwt (file mount path)
   cookieSecret: readEnvOrFile("JWT_SECRET"),
+  cookieSecret: process.env.JWT_SECRET ?? "",
   databaseUrl: readEnvOrFile("DATABASE_URL"),
   oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
