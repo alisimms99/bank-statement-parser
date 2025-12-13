@@ -1,6 +1,20 @@
 import fs from "fs";
 import { z } from "zod";
 
+function readEnvOrFile(key: string, fileKey = `${key}_FILE`): string {
+  const direct = process.env[key];
+  if (typeof direct === "string" && direct.length > 0) return direct;
+
+  const filePathRaw = process.env[fileKey];
+  const filePath = typeof filePathRaw === "string" ? filePathRaw.trim() : "";
+  if (filePath.length === 0) return "";
+
+  try {
+    if (!fs.existsSync(filePath)) return "";
+    // Secret files typically end with a newline; trim it.
+    return fs.readFileSync(filePath, "utf8").trim();
+  } catch (error) {
+    console.warn(`Failed to read secret file for ${key} (${fileKey})`, error);
 /**
  * Reads an env var directly, or falls back to <NAME>_FILE which should contain
  * a filesystem path to a secret (Cloud Run Secret Manager convention).
@@ -27,6 +41,11 @@ export function readEnvOrFile(name: string): string {
 export const ENV = {
   // App + Auth
   appId: process.env.VITE_APP_ID ?? "",
+  // Cloud Run Secret Manager supports env vars OR mounted files. We support both:
+  // - JWT_SECRET=... (env var)
+  // - JWT_SECRET_FILE=/secrets/jwt (file mount path)
+  cookieSecret: readEnvOrFile("JWT_SECRET"),
+  cookieSecret: process.env.JWT_SECRET ?? "",
   cookieSecret: readEnvOrFile("JWT_SECRET"),
 
   // DB
@@ -41,6 +60,8 @@ export const ENV = {
 
   // Forge
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
+  forgeApiKey: readEnvOrFile("BUILT_IN_FORGE_API_KEY"),
+  // Deployment / Document AI (preferred Cloud Run names + backwards-compatible aliases)
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
 
   // Server
@@ -78,6 +99,10 @@ export const ENV = {
     process.env.GCP_FORM_PROCESSOR_ID ??
     process.env.DOCAI_PROCESSOR_ID ??
     "",
+  gcpCredentialsJson: readEnvOrFile("GCP_DOCUMENTAI_CREDENTIALS"),
+  enableDocAi: process.env.ENABLE_DOC_AI === "true",
+  gcpServiceAccountJson: readEnvOrFile("GCP_SERVICE_ACCOUNT_JSON"),
+  // This value is itself a file path (e.g. a Cloud Run secret mount path like /secrets/sa.json)
 
   // Credentials / Secrets
   gcpCredentialsJson: process.env.GCP_DOCUMENTAI_CREDENTIALS ?? "",
