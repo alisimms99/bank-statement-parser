@@ -6,23 +6,9 @@ cd "$ROOT_DIR"
 
 echo "PRODUCTION PREVIEW START"
 
-# Build the production artifact (UI + server) into ./dist
-pnpm install --frozen-lockfile
-pnpm build
+# Build the Cloud-Run-ready artifact into ./prod
+bash ./scripts/build-prod.sh
 
-# Copy built assets into a Cloud-Run-like artifact folder and install prod deps there
-rm -rf "prod"
-mkdir -p "prod"
-cp -R "dist" "prod/"
-cp "package.json" "prod/"
-if [ -f "pnpm-lock.yaml" ]; then
-  cp "pnpm-lock.yaml" "prod/"
-fi
-if [ -d "patches" ]; then
-  cp -R "patches" "prod/"
-fi
-
-(cd "prod" && pnpm install --prod --frozen-lockfile)
-
+# Run the production server from the artifact folder
 NODE_ENV=production node "prod/dist/index.js"
 

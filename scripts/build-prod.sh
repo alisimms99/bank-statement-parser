@@ -9,7 +9,9 @@ echo "PRODUCTION BUILD START"
 # This repo builds client+server together into ./dist
 # - client bundle -> dist/public
 # - server bundle  -> dist/index.js
-pnpm install --frozen-lockfile
+# Ensure devDependencies are installed so typecheck/build can run even when
+# NODE_ENV=production (as in container builds).
+pnpm install --frozen-lockfile --prod=false
 pnpm check
 pnpm build
 
@@ -37,5 +39,4 @@ fi
 echo "INSTALLING PRODUCTION DEPENDENCIES (prod/)"
 (cd "prod" && pnpm install --prod --frozen-lockfile)
 
-echo "STARTING PRODUCTION SERVER (preview)"
-NODE_ENV=production node "prod/dist/index.js"
+echo "PRODUCTION BUILD COMPLETE"
