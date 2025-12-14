@@ -217,6 +217,11 @@ export function assertEnvOnStartup(): void {
   // Always validate PORT shape in production.
   getServerEnv();
 
+  const workspaceDomain = process.env.WORKSPACE_DOMAIN?.trim() ?? "";
+  if (!workspaceDomain) {
+    throw new Error("WORKSPACE_DOMAIN is required in production for Cloud Run access control");
+  }
+
   const docAiConfig = getDocumentAiConfig();
   if (docAiConfig.enabled && !docAiConfig.ready) {
     throw new Error(
