@@ -29,11 +29,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: Validate Cloud Run URL
         run: |
           if [ -z "$CLOUDRUN_URL" ]; then
@@ -163,15 +158,15 @@ jobs:
           TRANSACTION_COUNT=$(echo "$BODY" | jq '.document.transactions | length')
           echo "Transaction Count: $TRANSACTION_COUNT"
           
-          if [ "$TRANSACTION_COUNT" -lt 0 ]; then
-            echo "::error::Invalid transaction count"
-            exit 1
+          if [ "$TRANSACTION_COUNT" -lt 1 ]; then
+            echo "::warning::No transactions parsed from document"
           fi
           
           echo "✅ Ingest test passed"
           echo "::endgroup::"
 
       - name: Test 4 - GET /api/export/csv
+        id: export_csv
         if: steps.ingest_pdf.outputs.export_id != ''
         run: |
           echo "::group::Testing GET /api/export/:id/csv"
@@ -223,6 +218,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Test 5 - GET /api/export/pdf
+        id: export_pdf
         if: steps.ingest_pdf.outputs.export_id != ''
         run: |
           echo "::group::Testing GET /api/export/:id/pdf"
@@ -263,6 +259,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Test 6 - Export Not Found (404)
+        id: error_handling
         run: |
           echo "::group::Testing invalid export ID"
           
@@ -321,9 +318,9 @@ jobs:
           echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Health Check | ${{ steps.health_check.outcome == 'success' && '✅ Pass' || '❌ Fail' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| POST /api/ingest | ${{ steps.ingest_pdf.outcome == 'success' && '✅ Pass' || '❌ Fail' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| CSV Export | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
-          echo "| PDF Export | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
-          echo "| Error Handling | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+          echo "| CSV Export | ${{ steps.export_csv.outcome == 'success' && '✅ Pass' || (steps.export_csv.outcome == 'skipped' && '⏭️ Skipped' || '❌ Fail') }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| PDF Export | ${{ steps.export_pdf.outcome == 'success' && '✅ Pass' || (steps.export_pdf.outcome == 'skipped' && '⏭️ Skipped' || '❌ Fail') }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Error Handling | ${{ steps.error_handling.outcome == 'success' && '✅ Pass' || '❌ Fail' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [ -n "${{ steps.health_check.outputs.latency }}" ]; then
