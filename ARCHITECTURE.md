@@ -13,11 +13,19 @@ This document captures the proposed architecture shift to a Document AI–first 
 5. **Export**: CSV exporter operates on canonical transactions, emitting QuickBooks-safe numeric amounts and optional UTF-8 BOM.
 
 ## Components
-- **Config layer**: Env-driven configuration for `GCP_PROJECT_ID`, `GCP_LOCATION`, processor IDs per document type, and credentials JSON/base64. Safe defaults disable Document AI while preserving the legacy path.
+- **Config layer**: Env-driven configuration for `GOOGLE_PROJECT_ID`, `DOCAI_LOCATION`, processor IDs per document type, and credentials JSON/base64. Supports Secret Manager file-mount pattern via `<NAME>_FILE` environment variables. Safe defaults disable Document AI while preserving the legacy path.
 - **Server ingestion service**: Thin Express/TRPC handler that accepts base64 documents, calls Document AI, and normalizes results.
 - **Normalization library (shared)**: Type-safe mapping utilities for Document AI entities and legacy Citizens parsing into `CanonicalTransaction` objects.
 - **Client ingestion orchestrator**: Attempts server-side Document AI first; on failure, falls back to legacy parsing and normalization locally. Surfaces per-file status and combines batch results.
 - **Export layer**: CSV/QuickBooks exporter that accepts canonical transactions, applies signed numeric amounts, and includes a BOM toggle for spreadsheet compatibility.
+
+## Security & Secrets Management
+- **Production deployment**: All secrets stored in Google Cloud Secret Manager, mounted as files or environment variables in Cloud Run
+- **Supported secrets**: JWT_SECRET, GOOGLE_PROJECT_ID, DOCAI_LOCATION, DOCAI_PROCESSOR_ID, GCP_SERVICE_ACCOUNT_JSON, CORS_ALLOW_ORIGIN, DATABASE_URL
+- **File-mount pattern**: Environment variables with `_FILE` suffix (e.g., `JWT_SECRET_FILE`) point to Secret Manager mounted files
+- **Local development**: Uses `.env.local` for configuration (never committed)
+- **Validation**: Production mode validates all required secrets on startup, fails fast with clear error messages
+- See [Secret Manager Integration Guide](docs/SECRET_MANAGER.md) for deployment instructions
 
 ## Testing Strategy
 - Unit tests for normalization mappers across: dual-column bank layouts, credit-card style debits/credits, invoice line items, and OCR-only outputs.
