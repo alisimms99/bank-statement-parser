@@ -205,7 +205,7 @@ jobs:
           HEADER=$(echo "$BODY" | head -n1)
           echo "CSV Header: $HEADER"
           
-          if ! echo "$HEADER" | grep -q "date"; then
+          if ! echo "$HEADER" | grep -E "^date,|,date,|,date$" > /dev/null; then
             echo "::error::CSV missing 'date' column"
             exit 1
           fi
@@ -332,7 +332,15 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
-          echo "✅ **All tests passed!** The Cloud Run deployment is production-ready." >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.health_check.outcome }}" = "success" ] && \
+             [ "${{ steps.ingest_pdf.outcome }}" = "success" ] && \
+             [ "${{ steps.error_handling.outcome }}" = "success" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **All tests passed!** The Cloud Run deployment is production-ready." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "❌ **Some tests failed.** Review the logs above for details." >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Upload Test Artifacts
         if: always()
