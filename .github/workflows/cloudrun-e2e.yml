@@ -33,10 +33,17 @@ jobs:
 
       - name: Validate Cloud Run URL
         run: |
+          set -euo pipefail
           if [ -z "$CLOUDRUN_URL" ]; then
             echo "::error::Cloud Run URL is required"
             exit 1
           fi
+          # Normalize to avoid accidental double slashes when concatenating paths.
+          # e.g. "https://service.run.app/" + "/api/health" => "//api/health"
+          while [[ "$CLOUDRUN_URL" == */ ]]; do
+            CLOUDRUN_URL="${CLOUDRUN_URL%/}"
+          done
+          echo "CLOUDRUN_URL=$CLOUDRUN_URL" >> "$GITHUB_ENV"
           echo "Testing Cloud Run service at: $CLOUDRUN_URL"
 
       - name: Test 1 - Health Check Endpoint
