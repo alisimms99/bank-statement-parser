@@ -109,6 +109,9 @@ IMAGE="gcr.io/$PROJECT_ID/$SERVICE_NAME:latest"
 docker build -t $IMAGE .
 docker push $IMAGE
 
+# Configure Docker authentication for GCR
+gcloud auth configure-docker gcr.io --quiet
+
 # Deploy to Cloud Run with secrets
 gcloud run deploy $SERVICE_NAME \
   --project=$PROJECT_ID \
@@ -119,7 +122,7 @@ gcloud run deploy $SERVICE_NAME \
   --memory=1Gi \
   --cpu=1 \
   --timeout=300 \
-  --set-env-vars="NODE_ENV=production,ENABLE_DOC_AI=true" \
+  --set-env-vars="NODE_ENV=production,ENABLE_DOC_AI=true,GCP_SERVICE_ACCOUNT_JSON_FILE=/secrets/gcp-service-account.json" \
   --update-secrets="JWT_SECRET=jwt-secret:latest" \
   --update-secrets="GOOGLE_PROJECT_ID=google-project-id:latest" \
   --update-secrets="DOCAI_LOCATION=docai-location:latest" \
@@ -130,17 +133,11 @@ gcloud run deploy $SERVICE_NAME \
 echo "Deployment complete!"
 ```
 
-**Important**: For the service account JSON, we mount it as a file at `/secrets/gcp-service-account.json` and set the environment variable:
+**Important**: For the service account JSON, we:
+1. Mount the secret as a file using: `--update-secrets="/secrets/gcp-service-account.json=gcp-service-account-json:latest"`
+2. Set the environment variable to point to the mounted file: `--set-env-vars="GCP_SERVICE_ACCOUNT_JSON_FILE=/secrets/gcp-service-account.json"`
 
-```bash
---set-env-vars="GCP_SERVICE_ACCOUNT_JSON_FILE=/secrets/gcp-service-account.json"
-```
-
-Or you can use the volume mount syntax:
-
-```bash
---update-secrets="GCP_SERVICE_ACCOUNT_JSON_FILE=/secrets/gcp-service-account.json=gcp-service-account-json:latest"
-```
+The application's `readEnvOrFile` function will read the `GCP_SERVICE_ACCOUNT_JSON_FILE` environment variable and load the secret from the mounted file.
 
 ### Option 2: Using Cloud Run YAML Configuration
 
@@ -274,10 +271,14 @@ gcloud secrets describe jwt-secret --project=your-project-id
 gcloud secrets list --project=your-project-id
 ```
 
-Grant the Cloud Run service account access:
+Grant the Cloud Run service account access (replace PROJECT_NUMBER with your actual project number):
 ```bash
+# Get your project number
+PROJECT_NUMBER=$(gcloud projects describe YOUR_PROJECT_ID --format="value(projectNumber)")
+
+# Grant access to the default Compute Engine service account (used by Cloud Run)
 gcloud secrets add-iam-policy-binding jwt-secret \
-  --member="serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
 ```
 

@@ -108,6 +108,10 @@ echo "✓ All required secrets found"
 # ============================================================================
 
 echo ""
+echo "Configuring Docker authentication for GCR..."
+gcloud auth configure-docker gcr.io --quiet
+
+echo ""
 echo "Building Docker image..."
 docker build -t "$IMAGE" .
 
@@ -135,12 +139,12 @@ DEPLOY_CMD=(
   --timeout="$TIMEOUT"
   --concurrency="$CONCURRENCY"
   --max-instances="$MAX_INSTANCES"
-  --set-env-vars="NODE_ENV=production,ENABLE_DOC_AI=$ENABLE_DOC_AI"
+  --set-env-vars="NODE_ENV=production,ENABLE_DOC_AI=$ENABLE_DOC_AI,GCP_SERVICE_ACCOUNT_JSON_FILE=/secrets/gcp-service-account.json"
   --update-secrets="JWT_SECRET=jwt-secret:latest"
   --update-secrets="GOOGLE_PROJECT_ID=google-project-id:latest"
   --update-secrets="DOCAI_LOCATION=docai-location:latest"
   --update-secrets="DOCAI_PROCESSOR_ID=docai-processor-id:latest"
-  --update-secrets="GCP_SERVICE_ACCOUNT_JSON_FILE=/secrets/gcp-service-account.json=gcp-service-account-json:latest"
+  --update-secrets="/secrets/gcp-service-account.json=gcp-service-account-json:latest"
 )
 
 # Add optional CORS secret if it exists

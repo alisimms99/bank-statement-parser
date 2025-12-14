@@ -146,7 +146,12 @@ create_secret_from_file() {
 
 generate_jwt_secret() {
   # Generate a secure random JWT secret (32 bytes = 64 hex characters)
-  openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | base64 | tr -d '\n' | cut -c1-64
+  if command -v openssl &> /dev/null; then
+    openssl rand -hex 32
+  else
+    # Fallback: generate 32 random bytes and convert to hex
+    head -c 32 /dev/urandom | xxd -p -c 32
+  fi
 }
 
 # ============================================================================
@@ -277,10 +282,19 @@ echo ""
 echo "Secrets created in project: $PROJECT_ID"
 echo ""
 
-# Get the Cloud Run service account
-CLOUD_RUN_SA="${PROJECT_ID}@appspot.gserviceaccount.com"
-echo "Grant access to Cloud Run service account: $CLOUD_RUN_SA"
-read -p "Do you want to grant Secret Manager access to the default Compute Engine service account? (Y/n): " -r
+# Get the project number for the service account
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)")
+CLOUD_RUN_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+echo ""
+echo "======================================"
+echo "Cloud Run Service Account"
+echo "======================================"
+echo "The default Compute Engine service account will be used by Cloud Run:"
+echo "  $CLOUD_RUN_SA"
+echo ""
+echo "Grant access to Cloud Run service account?"
+read -p "Continue? (Y/n): " -r
 echo
 
 if [[ ! $REPLY =~ ^[Nn]$ ]]; then
