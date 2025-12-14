@@ -171,11 +171,11 @@ jobs:
         id: export_csv
         if: steps.ingest_pdf.outputs.export_id != ''
         run: |
-          echo "::group::Testing GET /api/export/:id/csv"
+          echo "::group::Testing GET /api/export/csv?exportId=:id"
           EXPORT_ID="${{ steps.ingest_pdf.outputs.export_id }}"
           
           RESPONSE=$(curl -s -w "\n%{http_code}" \
-            "$CLOUDRUN_URL/api/export/$EXPORT_ID/csv")
+            "$CLOUDRUN_URL/api/export/csv?exportId=$EXPORT_ID")
           
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
           BODY=$(echo "$RESPONSE" | head -n-1)
@@ -223,11 +223,11 @@ jobs:
         id: export_pdf
         if: steps.ingest_pdf.outputs.export_id != ''
         run: |
-          echo "::group::Testing GET /api/export/:id/pdf"
+          echo "::group::Testing GET /api/export/pdf?exportId=:id"
           EXPORT_ID="${{ steps.ingest_pdf.outputs.export_id }}"
           
           HTTP_CODE=$(curl -s -w "%{http_code}" -o /tmp/export.pdf \
-            "$CLOUDRUN_URL/api/export/$EXPORT_ID/pdf")
+            "$CLOUDRUN_URL/api/export/pdf?exportId=$EXPORT_ID")
           
           echo "HTTP Status: $HTTP_CODE"
           
@@ -266,7 +266,7 @@ jobs:
           echo "::group::Testing invalid export ID"
           
           RESPONSE=$(curl -s -w "\n%{http_code}" \
-            "$CLOUDRUN_URL/api/export/invalid-export-id-12345/csv")
+            "$CLOUDRUN_URL/api/export/csv?exportId=invalid-export-id-12345")
           
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
           BODY=$(echo "$RESPONSE" | head -n-1)
