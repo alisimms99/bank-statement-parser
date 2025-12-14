@@ -1,0 +1,69 @@
+{
+  "timestamp": "2025-12-14T00:53:18.037Z",
+  "nodeVersion": "v20.19.6",
+  "platform": "linux",
+  "arch": "x64",
+  "results": [
+    {
+      "transactionCount": 500,
+      "iteration": 1,
+      "success": true,
+      "memoryBefore": {
+        "rss": 98115584,
+        "heapTotal": 23871488,
+        "heapUsed": 15418384,
+        "external": 5962784,
+        "arrayBuffers": 640909
+      },
+      "pdfGenerationMs": 184,
+      "pdfSizeBytes": 46559,
+      "textExtractionMs": 1232,
+      "parsingMs": 1,
+      "normalizationMs": 0,
+      "extractedTransactions": 0,
+      "totalMs": 1417,
+      "memoryAfter": {
+        "rss": 662994944,
+        "heapTotal": 277303296,
+        "heapUsed": 253373392,
+        "external": 6169507,
+        "arrayBuffers": 713795
+      },
+      "memoryDeltaMB": 226.93157958984375
+    },
+    {
+      "transactionCount": 1000,
+      "iteration": 1,
+      "success": true,
+      "memoryBefore": {
+        "rss": 662994944,
+        "heapTotal": 277303296,
+        "heapUsed": 253377504,
+        "external": 6169507,
+        "arrayBuffers": 713795
+      },
+      "pdfGenerationMs": 274,
+      "pdfSizeBytes": 91672,
+      "textExtractionMs": 286,
+      "parsingMs": 1,
+      "normalizationMs": 0,
+      "extractedTransactions": 0,
+      "totalMs": 561,
+      "memoryAfter": {
+        "rss": 665804800,
+        "heapTotal": 275836928,
+        "heapUsed": 252307776,
+        "external": 6444195,
+        "arrayBuffers": 988483
+      },
+      "memoryDeltaMB": -1.020172119140625
+    }
+  ],
+  "summary": {
+    "totalTests": 2,
+    "successfulTests": 2,
+    "failedTests": 0,
+    "avgThroughput": 758,
+    "avgMemoryPerTransaction": 0.15060760498046874
+  }
+}

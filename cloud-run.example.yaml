@@ -1,0 +1,155 @@
+# Cloud Run Service Configuration Example
+# Based on performance benchmarks in docs/PERFORMANCE.md
+#
+# Deploy with:
+#   gcloud run services replace cloud-run.yaml
+#
+# Choose configuration based on expected workload size
+
+---
+# Configuration for Light Workloads (< 500 transactions per statement)
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: bank-statement-parser-light
+  labels:
+    cloud.googleapis.com/location: us-central1
+spec:
+  template:
+    metadata:
+      annotations:
+        # Auto-scaling
+        autoscaling.knative.dev/minScale: '0'
+        autoscaling.knative.dev/maxScale: '10'
+        # Resource allocation
+        run.googleapis.com/cpu-throttling: 'false'  # Always-allocated CPU
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 60
+      containers:
+        - image: gcr.io/PROJECT_ID/bank-statement-parser:latest
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: '1000m'  # 1 vCPU
+              memory: 1Gi
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: ENABLE_DOC_AI
+              value: 'true'
+            # Add your environment variables here
+
+---
+# Configuration for Medium Workloads (500-2,000 transactions per statement)
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: bank-statement-parser-medium
+  labels:
+    cloud.googleapis.com/location: us-central1
+spec:
+  template:
+    metadata:
+      annotations:
+        # Auto-scaling
+        autoscaling.knative.dev/minScale: '1'  # Keep 1 instance warm
+        autoscaling.knative.dev/maxScale: '20'
+        # Resource allocation
+        run.googleapis.com/cpu-throttling: 'false'
+        # Startup probe for cold starts
+        run.googleapis.com/startup-cpu-boost: 'true'
+    spec:
+      containerConcurrency: 40
+      timeoutSeconds: 120
+      containers:
+        - image: gcr.io/PROJECT_ID/bank-statement-parser:latest
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: '2000m'  # 2 vCPUs
+              memory: 2Gi
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: ENABLE_DOC_AI
+              value: 'true'
+            - name: NODE_OPTIONS
+              value: '--max-old-space-size=1536'  # Limit heap to 1.5GB
+
+---
+# Configuration for Heavy Workloads (2,000-5,000+ transactions per statement)
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: bank-statement-parser-heavy
+  labels:
+    cloud.googleapis.com/location: us-central1
+spec:
+  template:
+    metadata:
+      annotations:
+        # Auto-scaling
+        autoscaling.knative.dev/minScale: '1'
+        autoscaling.knative.dev/maxScale: '10'  # Lower max due to higher resource usage
+        # Resource allocation
+        run.googleapis.com/cpu-throttling: 'false'
+        run.googleapis.com/startup-cpu-boost: 'true'
+        # Execution environment (2nd gen for better performance)
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 20  # Low concurrency to prevent memory issues
+      timeoutSeconds: 300  # 5 minutes for very large statements
+      containers:
+        - image: gcr.io/PROJECT_ID/bank-statement-parser:latest
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: '4000m'  # 4 vCPUs
+              memory: 4Gi
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: ENABLE_DOC_AI
+              value: 'true'
+            - name: NODE_OPTIONS
+              value: '--max-old-space-size=3072'  # Limit heap to 3GB
+
+---
+# Configuration for Development/Testing
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: bank-statement-parser-dev
+  labels:
+    cloud.googleapis.com/location: us-central1
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: '0'
+        autoscaling.knative.dev/maxScale: '3'
+        run.googleapis.com/cpu-throttling: 'true'  # Allow CPU throttling for cost savings
+    spec:
+      containerConcurrency: 10
+      timeoutSeconds: 300
+      containers:
+        - image: gcr.io/PROJECT_ID/bank-statement-parser:latest
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: '1000m'
+              memory: 2Gi
+          env:
+            - name: NODE_ENV
+              value: development
+            - name: ENABLE_DOC_AI
+              value: 'false'  # Use legacy parser for dev to save quota

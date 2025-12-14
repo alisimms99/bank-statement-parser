@@ -73,6 +73,30 @@ The application will be available at `http://localhost:5173`.
 2.  You can toggle the **"Include BOM"** switch to add a UTF-8 Byte Order Mark to the CSV file, which improves compatibility with some spreadsheet software like Microsoft Excel.
 3.  The downloaded CSV file is formatted for direct import into QuickBooks.
 
+## Performance & Testing
+
+### Performance Benchmarks
+
+The application includes comprehensive performance tests for large bank statements. Run performance tests with:
+
+```bash
+# Run performance stress tests (500, 1000, 5000 transactions)
+npm run test:performance
+
+# Run custom benchmarks
+npm run benchmark -- --sizes 500,1000 --iterations 3 --output results.json
+```
+
+For detailed performance metrics, Cloud Run configuration recommendations, and memory ceiling analysis, see [Performance Documentation](docs/PERFORMANCE.md).
+
+### Expected Performance
+
+| Transaction Count | Processing Time | Memory Usage |
+|-------------------|-----------------|--------------|
+| 500               | < 30 seconds    | < 512 MB     |
+| 1,000             | < 60 seconds    | < 1 GB       |
+| 5,000             | < 180 seconds   | < 2 GB       |
+
 ## Known Limitations
 
 - The legacy (non-Document AI) parser is currently optimized for a specific Citizens Bank statement layout. It may not work correctly with other bank statement formats.
