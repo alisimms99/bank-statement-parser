@@ -54,8 +54,8 @@ gcloud run deploy ${SERVICE_NAME} \
   --update-secrets DATABASE_URL_FILE=/secrets/db:DATABASE_URL:latest \
   --update-secrets JWT_SECRET_FILE=/secrets/jwt:JWT_SECRET:latest \
   --update-secrets GOOGLE_PROJECT_ID_FILE=/secrets/project:GOOGLE_PROJECT_ID:latest \
-  --set-env-vars OAUTH_SERVER_URL_FILE=/secrets/oauth:OAUTH_SERVER_URL:latest \
-  --set-env-vars VITE_APP_ID_FILE=/secrets/appid:VITE_APP_ID:latest \
+  --update-secrets OAUTH_SERVER_URL_FILE=/secrets/oauth:OAUTH_SERVER_URL:latest \
+  --update-secrets VITE_APP_ID_FILE=/secrets/appid:VITE_APP_ID:latest \
   --allow-unauthenticated
 ```
 

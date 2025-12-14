@@ -243,7 +243,13 @@ if echo "${POLICY}" | grep -q "roles/run.invoker"; then
   echo "✓ Restricted access configured"
   echo ""
   echo "Authorized members:"
-  echo "${POLICY}" | grep -A 5 "roles/run.invoker" | grep "domain\|user\|group" || true
+  # Try jq first, fall back to grep if jq is not available
+  if command -v jq >/dev/null 2>&1; then
+    echo "${POLICY}" | jq -r '.bindings[] | select(.role=="roles/run.invoker") | .members[]' 2>/dev/null || \
+      echo "${POLICY}" | grep -A 5 "roles/run.invoker" | grep "domain\|user\|group" || true
+  else
+    echo "${POLICY}" | grep -A 5 "roles/run.invoker" | grep "domain\|user\|group" || true
+  fi
 else
   echo "❌ No invoker role found - service may be inaccessible"
 fi
