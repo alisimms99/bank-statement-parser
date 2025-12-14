@@ -151,4 +151,136 @@ describe("registerIngestionRoutes", () => {
     expect(res.body.fallback).toBe("disabled");
     expect(res.body.docAiTelemetry).toEqual({ enabled: false, processor: null, latencyMs: null, entityCount: 0 });
   });
+
+  describe("bulk ingestion", () => {
+    it("returns 400 when no files are provided", async () => {
+      const app = express();
+      app.use(express.json());
+      registerIngestionRoutes(app);
+
+      const res = await request(app).post("/api/ingest/bulk");
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("No files provided");
+    });
+
+    it("returns 400 when fewer than 12 files are provided", async () => {
+      const app = express();
+      app.use(express.json());
+      registerIngestionRoutes(app);
+
+      const agent = request(app).post("/api/ingest/bulk");
+
+      // Attach only 5 files
+      for (let i = 0; i < 5; i++) {
+        agent.attach("files", Buffer.from("fake"), `statement-${i}.pdf`);
+      }
+
+      const res = await agent;
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Insufficient files");
+    });
+
+    it("processes multiple PDFs successfully", async () => {
+      processStructuredMock.mockResolvedValue({
+        success: true,
+        document: sampleDocument,
+        processorId: "test-processor-id",
+        processorType: "bank",
+      });
+
+      const app = express();
+      app.use(express.json());
+      registerIngestionRoutes(app);
+
+      const agent = request(app).post("/api/ingest/bulk").field("documentType", "bank_statement");
+
+      // Attach 12 files
+      for (let i = 0; i < 12; i++) {
+        agent.attach("files", Buffer.from("fake"), `statement-${i}.pdf`);
+      }
+
+      const res = await agent;
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.results).toHaveLength(12);
+      expect(res.body.summary.total).toBe(12);
+      expect(res.body.summary.successful).toBe(12);
+      expect(res.body.summary.failed).toBe(0);
+
+      // Verify each result has the expected structure
+      res.body.results.forEach((result: any) => {
+        expect(result).toHaveProperty("exportId");
+        expect(result).toHaveProperty("transactions");
+        expect(result).toHaveProperty("fileName");
+        expect(result.success).toBe(true);
+      });
+    });
+
+    it("processes PDFs with legacy fallback", async () => {
+      processStructuredMock.mockResolvedValue({
+        success: false,
+        error: {
+          code: "processing_error",
+          message: "Document AI processing failed",
+          processorId: "test-processor-id",
+        },
+      });
+
+      const app = express();
+      app.use(express.json());
+      registerIngestionRoutes(app);
+
+      const agent = request(app).post("/api/ingest/bulk").field("documentType", "bank_statement");
+
+      // Attach 12 files
+      for (let i = 0; i < 12; i++) {
+        agent.attach("files", Buffer.from("fake"), `statement-${i}.pdf`);
+      }
+
+      const res = await agent;
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.results).toHaveLength(12);
+      expect(res.body.summary.total).toBe(12);
+
+      // Results should still succeed even with legacy fallback
+      res.body.results.forEach((result: any) => {
+        expect(result.success).toBe(true);
+        expect(result).toHaveProperty("exportId");
+      });
+    });
+
+    it("returns isolated export IDs for each statement", async () => {
+      processStructuredMock.mockResolvedValue({
+        success: true,
+        document: sampleDocument,
+        processorId: "test-processor-id",
+        processorType: "bank",
+      });
+
+      const app = express();
+      app.use(express.json());
+      registerIngestionRoutes(app);
+
+      const agent = request(app).post("/api/ingest/bulk").field("documentType", "bank_statement");
+
+      // Attach 12 files
+      for (let i = 0; i < 12; i++) {
+        agent.attach("files", Buffer.from("fake"), `statement-${i}.pdf`);
+      }
+
+      const res = await agent;
+
+      expect(res.status).toBe(200);
+
+      // Verify all export IDs are unique
+      const exportIds = res.body.results.map((r: any) => r.exportId).filter(Boolean);
+      const uniqueExportIds = new Set(exportIds);
+      expect(uniqueExportIds.size).toBe(exportIds.length);
+    });
+  });
 });

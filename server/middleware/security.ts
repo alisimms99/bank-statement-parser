@@ -78,7 +78,16 @@ export function applySecurityHeaders(req: Request, res: Response, next: NextFunc
 }
 
 export function uploadValidationMiddleware(req: Request, res: Response, next: NextFunction) {
-  if (req.path !== "/api/ingest" || req.method !== "POST") {
+  // Handle both single and bulk ingestion endpoints
+  const isSingleIngest = req.path === "/api/ingest" && req.method === "POST";
+  const isBulkIngest = req.path === "/api/ingest/bulk" && req.method === "POST";
+  
+  if (!isSingleIngest && !isBulkIngest) {
+    return next();
+  }
+
+  // Bulk ingestion has its own validation logic - skip here
+  if (isBulkIngest) {
     return next();
   }
 
