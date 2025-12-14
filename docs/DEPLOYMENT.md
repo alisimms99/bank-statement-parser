@@ -51,11 +51,21 @@ Use Cloud Run's built-in secret management to securely provide credentials:
 
 ```bash
 # Create secrets in Secret Manager (if not already created)
+# IMPORTANT: For production, store secrets in files and avoid shell history exposure
+
+# Option 1: From stdin (shown here for documentation clarity)
 echo -n "your-database-url" | gcloud secrets create DATABASE_URL --data-file=-
 echo -n "your-jwt-secret" | gcloud secrets create JWT_SECRET --data-file=-
 echo -n "your-gcp-project-id" | gcloud secrets create GOOGLE_PROJECT_ID --data-file=-
 echo -n "https://your-oauth-server.com" | gcloud secrets create OAUTH_SERVER_URL --data-file=-
 echo -n "your-app-id" | gcloud secrets create VITE_APP_ID --data-file=-
+
+# Option 2: From files (recommended for production secrets)
+# gcloud secrets create DATABASE_URL --data-file=./secrets/database-url.txt
+# gcloud secrets create JWT_SECRET --data-file=./secrets/jwt-secret.txt
+# gcloud secrets create GOOGLE_PROJECT_ID --data-file=./secrets/project-id.txt
+# gcloud secrets create OAUTH_SERVER_URL --data-file=./secrets/oauth-server-url.txt
+# gcloud secrets create VITE_APP_ID --data-file=./secrets/vite-app-id.txt
 
 # Mount secrets to your Cloud Run service
 gcloud run services update ${SERVICE_NAME} \

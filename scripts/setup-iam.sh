@@ -17,7 +17,7 @@
 #   # Lock down to Google Group
 #   ./scripts/setup-iam.sh bank-statement-parser us-central1 group:team@example.com
 
-set -euo pipefail
+set -euo pipefail -E
 
 # Color codes for output
 RED='\033[0;31m'
