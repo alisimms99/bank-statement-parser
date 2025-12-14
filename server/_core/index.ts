@@ -10,8 +10,11 @@ import { serveStatic, setupVite } from "./vite";
 import { registerIngestionRoutes } from "../ingestRoutes";
 import { registerExportRoutes } from "../exportRoutes";
 import { applySecurityHeaders, uploadValidationMiddleware } from "../middleware/security";
-import { assertEnvOnStartup, getServerEnv } from "./env";
+import { assertEnvOnStartup, getServerEnv, getDocumentAiConfig } from "./env";
 import { logEvent } from "./log";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 function applyCors(app: express.Express, corsAllowOrigin: string | null): void {
   if (!corsAllowOrigin) return;
@@ -97,6 +100,43 @@ async function startServer() {
   // Health check endpoint for Cloud Run / orchestrators
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, ts: new Date() });
+  });
+
+  // Status endpoint for Cloud Run deployment state
+  app.get("/api/status", (_req, res) => {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    
+    // Read package.json to get version
+    let version = "unknown";
+    try {
+      const packageJsonPath = path.resolve(__dirname, "..", "..", "package.json");
+      if (fs.existsSync(packageJsonPath)) {
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+        version = packageJson.version || "unknown";
+      }
+    } catch (error) {
+      console.warn("Failed to read package.json for version", error);
+    }
+
+    // Get Document AI configuration
+    const docAiConfig = getDocumentAiConfig();
+
+    // Build status response
+    const status = {
+      deployedRevision: process.env.K_REVISION || process.env.CLOUD_RUN_REVISION || version,
+      buildId: process.env.BUILD_ID || process.env.CLOUD_BUILD_ID || "local",
+      timestamp: new Date().toISOString(),
+      documentAi: {
+        enabled: docAiConfig.enabled,
+        ready: docAiConfig.ready,
+        reason: docAiConfig.reason,
+      },
+      version,
+      environment: process.env.NODE_ENV || "unknown",
+    };
+
+    res.json(status);
   });
 
   registerIngestionRoutes(app);
