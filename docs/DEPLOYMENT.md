@@ -78,11 +78,6 @@ By default, Cloud Run services are publicly accessible. To lock down access to y
 First, remove the `allUsers` IAM binding that allows unauthenticated access:
 
 ```bash
-# Get current IAM policy
-gcloud run services get-iam-policy ${SERVICE_NAME} \
-  --region ${REGION} \
-  --format json > iam-policy.json
-
 # Remove allUsers binding
 gcloud run services remove-iam-policy-binding ${SERVICE_NAME} \
   --region ${REGION} \
