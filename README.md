@@ -73,6 +73,37 @@ The application will be available at `http://localhost:5173`.
 2.  You can toggle the **"Include BOM"** switch to add a UTF-8 Byte Order Mark to the CSV file, which improves compatibility with some spreadsheet software like Microsoft Excel.
 3.  The downloaded CSV file is formatted for direct import into QuickBooks.
 
+## Error Reporting
+
+When deployed to Google Cloud Run, the application automatically integrates with **GCP Error Reporting** for instant visibility into ingestion and parsing failures.
+
+### Structured Error Logs
+
+All errors are logged with structured metadata that makes them easy to filter and track in the GCP Console:
+
+- **Severity**: `ERROR` for all critical failures
+- **Event Type**: `ingestion_error` for filtering ingestion-related errors
+- **Export ID**: Tracks specific ingestion attempts (when available)
+- **Stack Traces**: Full error stack traces for debugging
+- **Context**: Additional metadata including:
+  - `phase`: Where the error occurred (upload, docai, normalize, etc.)
+  - `fileName`: Name of the file being processed
+  - `documentType`: Type of document (bank_statement, invoice, receipt)
+  - `processorId`: Document AI processor ID (if applicable)
+
+### Filtering in GCP Console
+
+You can filter errors in the GCP Error Reporting console using these fields:
+
+```
+event="ingestion_error"
+severity="ERROR"
+exportId="your-export-id"
+phase="docai"
+```
+
+Errors appear in Error Reporting within seconds of occurrence, enabling rapid incident response and debugging.
+
 ## Known Limitations
 
 - The legacy (non-Document AI) parser is currently optimized for a specific Citizens Bank statement layout. It may not work correctly with other bank statement formats.

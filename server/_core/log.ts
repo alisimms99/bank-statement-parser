@@ -53,13 +53,14 @@ export function serializeError(error: unknown): Record<string, unknown> {
  * - Additional metadata for filtering (e.g., exportId, event)
  */
 export function logEvent(event: string, fields: Record<string, unknown> = {}, level: LogLevel = "info"): void {
+  const timestamp = new Date().toISOString();
   const payload = {
     // GCP Error Reporting expects "severity" field with uppercase values
     severity: mapToGcpSeverity(level),
     level,
     event,
-    timestamp: new Date().toISOString(),
-    ts: new Date().toISOString(),
+    timestamp,
+    ts: timestamp,
     ...fields,
   };
 
@@ -104,9 +105,10 @@ export interface IngestionErrorMetadata {
 export function logIngestionError(message: string, metadata: IngestionErrorMetadata = {}): void {
   const { error, exportId, ...otherFields } = metadata;
   
-  // Serialize error and extract stack trace separately to preserve message parameter
+  // Serialize error and extract stack/name separately to preserve message parameter
   const serializedError = serializeError(error);
-  const { message: _errorMessage, ...errorFields } = serializedError;
+  const { message: errorMessage, ...errorFields } = serializedError;
+  // We omit errorMessage and use the message parameter instead
   
   logEvent("ingestion_error", {
     message,
