@@ -107,8 +107,10 @@ export async function requireCloudRunApiAccess(req: Request, res: Response, next
 
   // Only protect API endpoints (do not block static assets / client routing).
   if (!req.path.startsWith("/api/")) return next();
-  // Cloud Run health probes do not include auth headers.
-  if (req.path === "/api/health") return next();
+  // Exempt endpoints that cannot include Authorization headers.
+  // - Cloud Run health probes do not include auth headers.
+  // - OAuth callbacks are browser redirects and cannot reliably include bearer tokens.
+  if (req.path === "/api/health" || req.path === "/api/oauth/callback") return next();
 
   const token = parseBearerToken(req.headers.authorization);
   if (!token) {
