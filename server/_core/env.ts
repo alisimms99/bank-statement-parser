@@ -1,28 +1,31 @@
 import fs from "fs";
 import { z } from "zod";
+import { readEnv, readEnvFile, resolveSecret } from "./secrets";
 
 /**
  * Reads an env var directly, or falls back to <NAME>_FILE which should contain
  * a filesystem path to a secret (Cloud Run Secret Manager convention).
  */
 export function readEnvOrFile(name: string): string {
-  const direct = process.env[name];
-  if (direct && direct.trim()) return direct;
+  // Kept for backwards compatibility with existing tests/code.
+  const direct = readEnv(name);
+  if (direct) return direct;
+  return readEnvFile(name);
+}
 
-  const fileKey = `${name}_FILE`;
-  const filePath = process.env[fileKey];
-  if (!filePath || !filePath.trim()) return "";
+function warmupSecret(envKey: string, getCurrent: () => string, setValue: (v: string) => void) {
+  // Only attempt Secret Manager if not already set via env or *_FILE.
+  if (getCurrent()) return;
 
-  try {
-    if (!fs.existsSync(filePath)) return "";
-    // Secret files often contain trailing newline; trim for safety.
-    return fs.readFileSync(filePath, "utf8").trim();
-  } catch (error) {
-    console.warn(`Failed to read ${name}_FILE`, error);
-  }
-
-  // Return empty string when missing or unreadable
-  return "";
+  void resolveSecret(envKey)
+    .then(v => {
+      if (!v) return;
+      if (getCurrent()) return;
+      setValue(v);
+    })
+    .catch(error => {
+      console.warn(`Failed to load secret for ${envKey}`, error);
+    });
 }
 
 export const ENV = {
@@ -42,18 +45,17 @@ export const ENV = {
 
   // Forge
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
-  forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  forgeApiKey: readEnvOrFile("BUILT_IN_FORGE_API_KEY") || (process.env.BUILT_IN_FORGE_API_KEY ?? ""),
 
   // Server
   port: process.env.PORT ?? "",
   corsAllowOrigin: readEnvOrFile("CORS_ALLOW_ORIGIN"),
 
-  // Project / Location (use readEnvOrFile for Secret Manager support)
+  // Project / Location
   gcpProjectId: readEnvOrFile("GOOGLE_PROJECT_ID") || readEnvOrFile("GCP_PROJECT_ID"),
-
   gcpLocation: readEnvOrFile("DOCAI_LOCATION") || process.env.GCP_LOCATION || "us",
 
-  // Processors (use readEnvOrFile for Secret Manager support)
+  // Processors
   docAiProcessorId: readEnvOrFile("DOCAI_PROCESSOR_ID"),
 
   gcpBankProcessorId:
@@ -76,7 +78,7 @@ export const ENV = {
     process.env.GCP_FORM_PROCESSOR_ID ??
     readEnvOrFile("DOCAI_PROCESSOR_ID"),
 
-  // Credentials / Secrets (use readEnvOrFile for Secret Manager support)
+  // Credentials / Secrets
   gcpCredentialsJson: readEnvOrFile("GCP_DOCUMENTAI_CREDENTIALS"),
   gcpServiceAccountJson: readEnvOrFile("GCP_SERVICE_ACCOUNT_JSON"),
   gcpServiceAccountPath: process.env.GCP_SERVICE_ACCOUNT_PATH ?? "",
@@ -84,6 +86,26 @@ export const ENV = {
   // Flags
   enableDocAi: process.env.ENABLE_DOC_AI === "true",
 };
+
+// Best-effort Secret Manager warmup (Cloud Run only, SECRET_<KEY> must be set).
+warmupSecret("JWT_SECRET", () => ENV.cookieSecret, v => (ENV.cookieSecret = v));
+warmupSecret("DATABASE_URL", () => ENV.databaseUrl, v => (ENV.databaseUrl = v));
+warmupSecret("CORS_ALLOW_ORIGIN", () => ENV.corsAllowOrigin, v => (ENV.corsAllowOrigin = v));
+warmupSecret("GOOGLE_PROJECT_ID", () => ENV.gcpProjectId, v => (ENV.gcpProjectId = v));
+warmupSecret("GCP_PROJECT_ID", () => ENV.gcpProjectId, v => (ENV.gcpProjectId = v));
+warmupSecret("DOCAI_LOCATION", () => (ENV.gcpLocation === "us" ? "" : ENV.gcpLocation), v => (ENV.gcpLocation = v));
+warmupSecret("DOCAI_PROCESSOR_ID", () => ENV.docAiProcessorId, v => (ENV.docAiProcessorId = v));
+warmupSecret(
+  "GCP_DOCUMENTAI_CREDENTIALS",
+  () => ENV.gcpCredentialsJson,
+  v => (ENV.gcpCredentialsJson = v)
+);
+warmupSecret(
+  "GCP_SERVICE_ACCOUNT_JSON",
+  () => ENV.gcpServiceAccountJson,
+  v => (ENV.gcpServiceAccountJson = v)
+);
+warmupSecret("BUILT_IN_FORGE_API_KEY", () => ENV.forgeApiKey, v => (ENV.forgeApiKey = v));
 
 export type DocumentAiProcessorType = "bank" | "invoice" | "ocr" | "form";
 
