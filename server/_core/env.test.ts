@@ -53,3 +53,72 @@ describe("DATABASE_URL resolution", () => {
     expect(ENV.databaseUrl).toBe("mysql://user:pass@host:3306/db");
   });
 });
+
+describe("Production secrets support Secret Manager", () => {
+  it("loads GOOGLE_PROJECT_ID from file when GOOGLE_PROJECT_ID_FILE is set", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gcp-project-"));
+    const filePath = path.join(dir, "GOOGLE_PROJECT_ID");
+    fs.writeFileSync(filePath, "my-project-123\n", "utf8");
+
+    const { ENV } = await importFreshEnv({
+      GOOGLE_PROJECT_ID: undefined,
+      GOOGLE_PROJECT_ID_FILE: filePath,
+    });
+
+    expect(ENV.gcpProjectId).toBe("my-project-123");
+  });
+
+  it("loads DOCAI_PROCESSOR_ID from file when DOCAI_PROCESSOR_ID_FILE is set", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "processor-"));
+    const filePath = path.join(dir, "DOCAI_PROCESSOR_ID");
+    fs.writeFileSync(filePath, "abc123processor\n", "utf8");
+
+    const { ENV } = await importFreshEnv({
+      DOCAI_PROCESSOR_ID: undefined,
+      DOCAI_PROCESSOR_ID_FILE: filePath,
+    });
+
+    expect(ENV.docAiProcessorId).toBe("abc123processor");
+  });
+
+  it("loads DOCAI_LOCATION from file when DOCAI_LOCATION_FILE is set", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "location-"));
+    const filePath = path.join(dir, "DOCAI_LOCATION");
+    fs.writeFileSync(filePath, "us-west1\n", "utf8");
+
+    const { ENV } = await importFreshEnv({
+      DOCAI_LOCATION: undefined,
+      DOCAI_LOCATION_FILE: filePath,
+      GCP_LOCATION: undefined,
+    });
+
+    expect(ENV.gcpLocation).toBe("us-west1");
+  });
+
+  it("loads CORS_ALLOW_ORIGIN from file when CORS_ALLOW_ORIGIN_FILE is set", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cors-"));
+    const filePath = path.join(dir, "CORS_ALLOW_ORIGIN");
+    fs.writeFileSync(filePath, "https://example.com\n", "utf8");
+
+    const { ENV } = await importFreshEnv({
+      CORS_ALLOW_ORIGIN: undefined,
+      CORS_ALLOW_ORIGIN_FILE: filePath,
+    });
+
+    expect(ENV.corsAllowOrigin).toBe("https://example.com");
+  });
+
+  it("loads GCP_SERVICE_ACCOUNT_JSON from file when GCP_SERVICE_ACCOUNT_JSON_FILE is set", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-json-"));
+    const filePath = path.join(dir, "GCP_SERVICE_ACCOUNT_JSON");
+    const serviceAccount = JSON.stringify({ type: "service_account", project_id: "test" });
+    fs.writeFileSync(filePath, serviceAccount + "\n", "utf8");
+
+    const { ENV } = await importFreshEnv({
+      GCP_SERVICE_ACCOUNT_JSON: undefined,
+      GCP_SERVICE_ACCOUNT_JSON_FILE: filePath,
+    });
+
+    expect(ENV.gcpServiceAccountJson).toBe(serviceAccount);
+  });
+});
