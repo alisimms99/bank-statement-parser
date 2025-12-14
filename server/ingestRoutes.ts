@@ -8,7 +8,7 @@ import type { DocumentAiTelemetry, IngestionFailure } from "@shared/types";
 import { legacyTransactionsToCanonical, parseStatementText } from "@shared/legacyStatementParser";
 import { storeTransactions } from "./exportRoutes";
 import { recordIngestFailure, recordIngestMetric } from "./_core/metrics";
-import { logEvent, serializeError } from "./_core/log";
+import { logEvent, serializeError, logIngestionError } from "./_core/log";
 import { extractTextFromPDFBuffer } from "./_core/pdfText";
 
 // Support both JSON and multipart form data
@@ -66,21 +66,34 @@ function parseRequest(req: Request): ParsedRequest | { error: string; status: nu
 
 async function processLegacyFallback(
   buffer: Buffer,
-  documentType: "bank_statement" | "invoice" | "receipt"
+  documentType: "bank_statement" | "invoice" | "receipt",
+  fileName?: string
 ): Promise<CanonicalTransaction[]> {
   try {
     const text = await extractTextFromPDFBuffer(buffer);
     const legacyTransactions = parseStatementText(text);
     return legacyTransactionsToCanonical(legacyTransactions);
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Legacy parser failed";
+    
+    // Log structured error for GCP Error Reporting
+    logIngestionError(errorMessage, {
+      exportId: null,
+      phase: "normalize",
+      fileName,
+      documentType,
+      error,
+      hint: "Legacy PDF parser threw while extracting/normalizing transactions",
+    });
+    
     // If legacy parser fails, return empty array
     recordIngestFailure({
       phase: "normalize",
-      message: error instanceof Error ? error.message : "Legacy parser failed",
+      message: errorMessage,
       ts: Date.now(),
       hint: "Legacy PDF parser threw while extracting/normalizing transactions",
     });
-    console.warn("Legacy parser failed", error);
+    
     return [];
   }
 }
@@ -230,7 +243,7 @@ export function registerIngestionRoutes(app: Express) {
 
       // Process with legacy parser
       const legacyStartTime = Date.now();
-      const legacyTransactions = (await processLegacyFallback(buffer, documentType)) ?? [];
+      const legacyTransactions = (await processLegacyFallback(buffer, documentType, fileName)) ?? [];
       const legacyDurationMs = Date.now() - legacyStartTime;
       
       const legacyDoc: CanonicalDocument = {
@@ -279,15 +292,22 @@ export function registerIngestionRoutes(app: Express) {
         docAiFailure,
       });
     } catch (error) {
-      logEvent(
-        "ingest_failure",
-        { phase: "unknown", fileName, documentType, error: serializeError(error), durationMs: Date.now() - startTime },
-        "error"
-      );
       const errorDurationMs = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : "Failed to ingest document";
+      
+      // Log structured error for GCP Error Reporting
+      logIngestionError(errorMessage, {
+        exportId: null,
+        phase: "unknown",
+        fileName,
+        documentType,
+        durationMs: errorDurationMs,
+        error,
+      });
+      
       const failure: IngestionFailure = {
         phase: "unknown",
-        message: error instanceof Error ? error.message : "Failed to ingest document",
+        message: errorMessage,
         ts: Date.now(),
         hint: `file=${fileName} documentType=${documentType}`,
       };
