@@ -10,6 +10,7 @@ import { storeTransactions } from "./exportRoutes";
 import { recordIngestFailure, recordIngestMetric } from "./_core/metrics";
 import { logEvent, serializeError } from "./_core/log";
 import { extractTextFromPDFBuffer } from "./_core/pdfText";
+import { recordFirstRequest, getColdStartDuration } from "./_core/coldStart";
 
 // Support both JSON and multipart form data
 const upload = multer({ storage: multer.memoryStorage() });
@@ -88,6 +89,15 @@ async function processLegacyFallback(
 export function registerIngestionRoutes(app: Express) {
   // Support both multipart and JSON
   app.post("/api/ingest", upload.single("file"), async (req, res) => {
+    // Track cold start if this is the first request
+    const coldStartMs = recordFirstRequest();
+    if (coldStartMs !== null) {
+      logEvent("cold_start", {
+        durationMs: coldStartMs,
+        containerStartup: true,
+      });
+    }
+    
     const parsed = parseRequest(req);
     
     if ("error" in parsed) {
@@ -115,6 +125,7 @@ export function registerIngestionRoutes(app: Express) {
       documentType,
       bytes: buffer.length,
       contentType: req.headers["content-type"],
+      coldStartMs: getColdStartDuration(),
     });
 
     try {
@@ -280,7 +291,7 @@ export function registerIngestionRoutes(app: Express) {
       });
     } catch (error) {
       logEvent(
-        "ingest_failure",
+        "ingest_error",
         { phase: "unknown", fileName, documentType, error: serializeError(error), durationMs: Date.now() - startTime },
         "error"
       );

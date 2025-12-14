@@ -1,0 +1,319 @@
+{
+  "displayName": "Bank Statement Parser - Production Observability",
+  "mosaicLayout": {
+    "columns": 12,
+    "tiles": [
+      {
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Ingestion Latency (P50 / P95)",
+          "xyChart": {
+            "chartOptions": {
+              "mode": "COLOR"
+            },
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"ingestion_complete\" AND jsonPayload.durationMs>0",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_DELTA",
+                      "crossSeriesReducer": "REDUCE_PERCENTILE_50",
+                      "groupByFields": []
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "legendTemplate": "P50 Latency"
+              },
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"ingestion_complete\" AND jsonPayload.durationMs>0",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_DELTA",
+                      "crossSeriesReducer": "REDUCE_PERCENTILE_95",
+                      "groupByFields": []
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "legendTemplate": "P95 Latency"
+              }
+            ],
+            "yAxis": {
+              "label": "Latency (ms)",
+              "scale": "LINEAR"
+            }
+          }
+        }
+      },
+      {
+        "xPos": 6,
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Error Rate (Ingestion Failures)",
+          "xyChart": {
+            "chartOptions": {
+              "mode": "COLOR"
+            },
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"cloud_run_revision\" AND (jsonPayload.event=\"ingest_error\" OR jsonPayload.event=\"ingest_failure\")",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_RATE",
+                      "crossSeriesReducer": "REDUCE_SUM",
+                      "groupByFields": ["jsonPayload.phase"]
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "legendTemplate": "Errors by ${jsonPayload.phase}"
+              },
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"ingestion_complete\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_RATE",
+                      "crossSeriesReducer": "REDUCE_SUM",
+                      "groupByFields": []
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "legendTemplate": "Successful Ingestions"
+              }
+            ],
+            "yAxis": {
+              "label": "Events per second",
+              "scale": "LINEAR"
+            }
+          }
+        }
+      },
+      {
+        "yPos": 4,
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Export Volume per Hour (CSV + PDF)",
+          "xyChart": {
+            "chartOptions": {
+              "mode": "COLOR"
+            },
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"export_csv\" AND jsonPayload.success=true",
+                    "aggregation": {
+                      "alignmentPeriod": "3600s",
+                      "perSeriesAligner": "ALIGN_RATE",
+                      "crossSeriesReducer": "REDUCE_SUM",
+                      "groupByFields": []
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "legendTemplate": "CSV Exports per Hour"
+              },
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"export_pdf\" AND jsonPayload.success=true",
+                    "aggregation": {
+                      "alignmentPeriod": "3600s",
+                      "perSeriesAligner": "ALIGN_RATE",
+                      "crossSeriesReducer": "REDUCE_SUM",
+                      "groupByFields": []
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "legendTemplate": "PDF Exports per Hour"
+              }
+            ],
+            "yAxis": {
+              "label": "Exports per hour",
+              "scale": "LINEAR"
+            }
+          }
+        }
+      },
+      {
+        "xPos": 6,
+        "yPos": 4,
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Cold Start Duration",
+          "xyChart": {
+            "chartOptions": {
+              "mode": "COLOR"
+            },
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"cold_start\" AND jsonPayload.durationMs>0",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_DELTA",
+                      "crossSeriesReducer": "REDUCE_MEAN",
+                      "groupByFields": []
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "legendTemplate": "Average Cold Start Duration"
+              },
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"cold_start\" AND jsonPayload.durationMs>0",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_DELTA",
+                      "crossSeriesReducer": "REDUCE_PERCENTILE_95",
+                      "groupByFields": []
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "legendTemplate": "P95 Cold Start Duration"
+              }
+            ],
+            "yAxis": {
+              "label": "Duration (ms)",
+              "scale": "LINEAR"
+            }
+          }
+        }
+      },
+      {
+        "yPos": 8,
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Ingestion Source Distribution",
+          "xyChart": {
+            "chartOptions": {
+              "mode": "COLOR"
+            },
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"ingestion_complete\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_RATE",
+                      "crossSeriesReducer": "REDUCE_SUM",
+                      "groupByFields": ["jsonPayload.source"]
+                    }
+                  }
+                },
+                "plotType": "STACKED_AREA",
+                "targetAxis": "Y1",
+                "legendTemplate": "${jsonPayload.source}"
+              }
+            ],
+            "yAxis": {
+              "label": "Ingestions per second",
+              "scale": "LINEAR"
+            }
+          }
+        }
+      },
+      {
+        "xPos": 6,
+        "yPos": 8,
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Transaction Volume Processed",
+          "xyChart": {
+            "chartOptions": {
+              "mode": "COLOR"
+            },
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"ingestion_complete\" AND jsonPayload.transactionCount>0",
+                    "aggregation": {
+                      "alignmentPeriod": "300s",
+                      "perSeriesAligner": "ALIGN_DELTA",
+                      "crossSeriesReducer": "REDUCE_SUM",
+                      "groupByFields": []
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "legendTemplate": "Transactions Processed"
+              }
+            ],
+            "yAxis": {
+              "label": "Transaction count",
+              "scale": "LINEAR"
+            }
+          }
+        }
+      },
+      {
+        "yPos": 12,
+        "width": 12,
+        "height": 4,
+        "widget": {
+          "title": "Recent Logs - Ingestion Events",
+          "logsPanel": {
+            "resourceNames": [],
+            "filter": "resource.type=\"cloud_run_revision\"\n(jsonPayload.event=\"ingestion_start\" OR jsonPayload.event=\"ingestion_complete\" OR jsonPayload.event=\"ingest_error\")"
+          }
+        }
+      },
+      {
+        "yPos": 16,
+        "width": 12,
+        "height": 4,
+        "widget": {
+          "title": "Recent Logs - Export Events",
+          "logsPanel": {
+            "resourceNames": [],
+            "filter": "resource.type=\"cloud_run_revision\"\n(jsonPayload.event=\"export_csv\" OR jsonPayload.event=\"export_pdf\")"
+          }
+        }
+      },
+      {
+        "yPos": 20,
+        "width": 12,
+        "height": 4,
+        "widget": {
+          "title": "Recent Logs - Errors and Warnings",
+          "logsPanel": {
+            "resourceNames": [],
+            "filter": "resource.type=\"cloud_run_revision\"\nseverity>=\"WARNING\""
+          }
+        }
+      }
+    ]
+  }
+}

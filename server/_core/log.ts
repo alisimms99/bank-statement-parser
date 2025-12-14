@@ -1,5 +1,21 @@
 export type LogLevel = "info" | "warn" | "error";
 
+/**
+ * Map our log levels to Cloud Logging severity levels
+ * https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#LogSeverity
+ */
+function getCloudLoggingSeverity(level: LogLevel): string {
+  switch (level) {
+    case "error":
+      return "ERROR";
+    case "warn":
+      return "WARNING";
+    case "info":
+    default:
+      return "INFO";
+  }
+}
+
 function safeJsonStringify(value: unknown): string {
   try {
     return JSON.stringify(value, (_k, v) => {
@@ -15,7 +31,7 @@ function safeJsonStringify(value: unknown): string {
     });
   } catch {
     // Never allow logging to crash the process.
-    return JSON.stringify({ event: "log_serialize_failure", ts: new Date().toISOString() });
+    return JSON.stringify({ event: "log_serialize_failure", timestamp: new Date().toISOString() });
   }
 }
 
@@ -27,14 +43,27 @@ export function serializeError(error: unknown): Record<string, unknown> {
 }
 
 /**
- * Structured log emitter.
- * Emits a single JSON line, compatible with Cloud Run log ingestion.
+ * Structured log emitter optimized for Cloud Logging.
+ * 
+ * Emits JSON logs compatible with Cloud Run log ingestion and Cloud Logging.
+ * Uses Cloud Logging severity levels and structured fields for better querying.
+ * 
+ * Event types for metrics:
+ * - ingestion_start: Start of document ingestion
+ * - ingestion_complete: Successful completion of ingestion
+ * - ingestion_error: Failed ingestion
+ * - export_csv: CSV export event
+ * - export_pdf: PDF export event
+ * - cold_start: Cold start detected
  */
 export function logEvent(event: string, fields: Record<string, unknown> = {}, level: LogLevel = "info"): void {
   const payload = {
-    level,
+    severity: getCloudLoggingSeverity(level),
+    message: event,
     event,
-    ts: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
+    // Include trace context if available (for Cloud Trace integration)
+    ...(fields["trace"] ? { "logging.googleapis.com/trace": fields["trace"] } : {}),
     ...fields,
   };
 
