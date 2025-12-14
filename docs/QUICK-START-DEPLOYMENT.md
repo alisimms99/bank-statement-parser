@@ -51,11 +51,11 @@ gcloud run deploy ${SERVICE_NAME} \
   --project ${PROJECT_ID} \
   --port 8080 \
   --set-env-vars NODE_ENV=production \
-  --update-secrets DATABASE_URL_FILE=/secrets/db:DATABASE_URL:latest \
-  --update-secrets JWT_SECRET_FILE=/secrets/jwt:JWT_SECRET:latest \
-  --update-secrets GOOGLE_PROJECT_ID_FILE=/secrets/project:GOOGLE_PROJECT_ID:latest \
-  --update-secrets OAUTH_SERVER_URL_FILE=/secrets/oauth:OAUTH_SERVER_URL:latest \
-  --update-secrets VITE_APP_ID_FILE=/secrets/appid:VITE_APP_ID:latest \
+  --update-secrets DATABASE_URL_FILE=/secrets/database-url:DATABASE_URL:latest \
+  --update-secrets JWT_SECRET_FILE=/secrets/jwt-secret:JWT_SECRET:latest \
+  --update-secrets GOOGLE_PROJECT_ID_FILE=/secrets/google-project-id:GOOGLE_PROJECT_ID:latest \
+  --update-secrets OAUTH_SERVER_URL_FILE=/secrets/oauth-server-url:OAUTH_SERVER_URL:latest \
+  --update-secrets VITE_APP_ID_FILE=/secrets/vite-app-id:VITE_APP_ID:latest \
   --allow-unauthenticated
 ```
 

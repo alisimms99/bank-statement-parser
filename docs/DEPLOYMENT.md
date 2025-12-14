@@ -54,13 +54,17 @@ Use Cloud Run's built-in secret management to securely provide credentials:
 echo -n "your-database-url" | gcloud secrets create DATABASE_URL --data-file=-
 echo -n "your-jwt-secret" | gcloud secrets create JWT_SECRET --data-file=-
 echo -n "your-gcp-project-id" | gcloud secrets create GOOGLE_PROJECT_ID --data-file=-
+echo -n "https://your-oauth-server.com" | gcloud secrets create OAUTH_SERVER_URL --data-file=-
+echo -n "your-app-id" | gcloud secrets create VITE_APP_ID --data-file=-
 
 # Mount secrets to your Cloud Run service
 gcloud run services update ${SERVICE_NAME} \
   --region ${REGION} \
   --update-secrets DATABASE_URL_FILE=/secrets/database-url:DATABASE_URL:latest \
   --update-secrets JWT_SECRET_FILE=/secrets/jwt-secret:JWT_SECRET:latest \
-  --update-secrets GOOGLE_PROJECT_ID_FILE=/secrets/google-project-id:GOOGLE_PROJECT_ID:latest
+  --update-secrets GOOGLE_PROJECT_ID_FILE=/secrets/google-project-id:GOOGLE_PROJECT_ID:latest \
+  --update-secrets OAUTH_SERVER_URL_FILE=/secrets/oauth-server-url:OAUTH_SERVER_URL:latest \
+  --update-secrets VITE_APP_ID_FILE=/secrets/vite-app-id:VITE_APP_ID:latest
 ```
 
 For a complete list of required environment variables, see the [Environment Configuration](#environment-configuration) section below.

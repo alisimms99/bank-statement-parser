@@ -77,12 +77,15 @@ if echo "${CURRENT_POLICY}" | grep -q '"allUsers"'; then
   
   # Remove allUsers binding
   print_info "Removing public access (allUsers)..."
-  gcloud run services remove-iam-policy-binding "${SERVICE_NAME}" \
+  if gcloud run services remove-iam-policy-binding "${SERVICE_NAME}" \
     --region="${REGION}" \
     --member="allUsers" \
     --role="roles/run.invoker" \
-    --quiet 2>/dev/null || print_warning "allUsers binding may not exist for this role"
-  print_info "Successfully processed allUsers binding removal"
+    --quiet 2>&1 | grep -v "NOT_FOUND"; then
+    print_info "Successfully removed allUsers binding"
+  else
+    print_info "allUsers binding was already removed or does not exist"
+  fi
 else
   print_info "No 'allUsers' binding found - service is already private"
 fi
@@ -90,12 +93,15 @@ fi
 # Remove allAuthenticatedUsers if present
 if echo "${CURRENT_POLICY}" | grep -q '"allAuthenticatedUsers"'; then
   print_warning "Found 'allAuthenticatedUsers' binding - removing..."
-  gcloud run services remove-iam-policy-binding "${SERVICE_NAME}" \
+  if gcloud run services remove-iam-policy-binding "${SERVICE_NAME}" \
     --region="${REGION}" \
     --member="allAuthenticatedUsers" \
     --role="roles/run.invoker" \
-    --quiet 2>/dev/null || print_warning "allAuthenticatedUsers binding may not exist for this role"
-  print_info "Successfully processed allAuthenticatedUsers binding removal"
+    --quiet 2>&1 | grep -v "NOT_FOUND"; then
+    print_info "Successfully removed allAuthenticatedUsers binding"
+  else
+    print_info "allAuthenticatedUsers binding was already removed or does not exist"
+  fi
 fi
 
 # Grant access to specified member
