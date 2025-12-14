@@ -5,6 +5,7 @@ This application automates the extraction of transaction data from bank statemen
 ## Features
 
 - **Intelligent Document Processing**: Leverages Google Cloud Document AI to parse various financial documents, including bank statements, invoices, and receipts.
+- **Bulk PDF Ingestion**: Upload and process 12-60 PDF statements at once with rate limiting and memory management to prevent server overload.
 - **Legacy Fallback**: Includes a robust client-side PDF parser as a fallback for when Document AI is unavailable or disabled.
 - **Canonical Data Model**: Normalizes extracted data into a consistent `CanonicalTransaction` schema, ensuring data uniformity regardless of the source.
 - **QuickBooks-Ready Export**: Exports normalized transactions to a CSV format compatible with QuickBooks, including options for UTF-8 BOM for spreadsheet compatibility.
@@ -73,8 +74,20 @@ The application will be available at `http://localhost:5173`.
 2.  You can toggle the **"Include BOM"** switch to add a UTF-8 Byte Order Mark to the CSV file, which improves compatibility with some spreadsheet software like Microsoft Excel.
 3.  The downloaded CSV file is formatted for direct import into QuickBooks.
 
+## API Endpoints
+
+For detailed API documentation, including request/response formats and examples, see [docs/API.md](./docs/API.md).
+
+### Quick Reference
+
+- **Single Ingestion**: `POST /api/ingest` - Upload and process a single PDF
+- **Bulk Ingestion**: `POST /api/ingest/bulk` - Upload and process 12-60 PDFs at once
+- **CSV Export**: `GET /api/export/:id/csv` - Download transactions as CSV
+- **PDF Export**: `GET /api/export/:id/pdf` - Download transactions as PDF
+
 ## Known Limitations
 
 - The legacy (non-Document AI) parser is currently optimized for a specific Citizens Bank statement layout. It may not work correctly with other bank statement formats.
 - The application currently has a file size limit of ~25 MB per upload.
-- Batch processing handles files sequentially. Errors in one file do not stop the entire batch, but there is no shared normalization across files in a single batch.
+- Bulk ingestion is rate-limited to 5 concurrent requests to prevent server overload on Cloud Run.
+- Export data expires after 1 hour and must be regenerated.
