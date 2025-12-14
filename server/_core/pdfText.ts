@@ -10,7 +10,7 @@ export async function extractTextFromPDFBuffer(buffer: Buffer): Promise<string> 
     throw new Error("pdfjs-dist legacy build did not expose getDocument()");
   }
 
-  const loadingTask = getDocument({ data: buffer });
+  const loadingTask = getDocument({ data: new Uint8Array(buffer) });
   const pdf = await (loadingTask?.promise ?? loadingTask);
 
   let fullText = "";
