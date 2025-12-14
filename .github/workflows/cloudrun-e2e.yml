@@ -334,6 +334,8 @@ jobs:
           
           if [ "${{ steps.health_check.outcome }}" = "success" ] && \
              [ "${{ steps.ingest_pdf.outcome }}" = "success" ] && \
+             [ "${{ steps.export_csv.outcome }}" = "success" ] && \
+             [ "${{ steps.export_pdf.outcome }}" = "success" ] && \
              [ "${{ steps.error_handling.outcome }}" = "success" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "✅ **All tests passed!** The Cloud Run deployment is production-ready." >> $GITHUB_STEP_SUMMARY
