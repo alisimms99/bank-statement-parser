@@ -21,6 +21,8 @@ jobs:
   e2e-tests:
     name: End-to-End Cloud Run Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     
     env:
       CLOUDRUN_URL: ${{ inputs.cloudrun_url }}
