@@ -1,0 +1,363 @@
+name: Cloud Run E2E Tests
+
+on:
+  # Allow manual trigger with custom URL
+  workflow_dispatch:
+    inputs:
+      cloudrun_url:
+        description: 'Cloud Run service URL (e.g., https://my-service-xyz.run.app)'
+        required: true
+        type: string
+  
+  # Allow being called from deployment workflows
+  workflow_call:
+    inputs:
+      cloudrun_url:
+        description: 'Cloud Run service URL'
+        required: true
+        type: string
+
+jobs:
+  e2e-tests:
+    name: End-to-End Cloud Run Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    env:
+      CLOUDRUN_URL: ${{ inputs.cloudrun_url }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Cloud Run URL
+        run: |
+          set -euo pipefail
+          if [ -z "$CLOUDRUN_URL" ]; then
+            echo "::error::Cloud Run URL is required"
+            exit 1
+          fi
+          # Normalize to avoid accidental double slashes when concatenating paths.
+          # e.g. "https://service.run.app/" + "/api/health" => "//api/health"
+          while [[ "$CLOUDRUN_URL" == */ ]]; do
+            CLOUDRUN_URL="${CLOUDRUN_URL%/}"
+          done
+          echo "CLOUDRUN_URL=$CLOUDRUN_URL" >> "$GITHUB_ENV"
+          echo "Testing Cloud Run service at: $CLOUDRUN_URL"
+
+      - name: Test 1 - Health Check Endpoint
+        id: health_check
+        run: |
+          echo "::group::Testing GET /api/health"
+          START_TIME=$(date +%s%3N)
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" "$CLOUDRUN_URL/api/health")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+          
+          END_TIME=$(date +%s%3N)
+          LATENCY=$((END_TIME - START_TIME))
+          
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response Body: $BODY"
+          echo "Cold Start Latency: ${LATENCY}ms"
+          echo "latency=${LATENCY}" >> $GITHUB_OUTPUT
+          
+          # Validate status code
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Health check failed with status $HTTP_CODE"
+            exit 1
+          fi
+          
+          # Validate JSON structure
+          if ! echo "$BODY" | jq -e '.ok == true' > /dev/null; then
+            echo "::error::Health check response missing 'ok: true'"
+            exit 1
+          fi
+          
+          if ! echo "$BODY" | jq -e '.ts' > /dev/null; then
+            echo "::error::Health check response missing 'ts' field"
+            exit 1
+          fi
+          
+          echo "✅ Health check passed"
+          echo "::endgroup::"
+
+      - name: Test 2 - CORS Preflight
+        run: |
+          echo "::group::Testing CORS preflight (OPTIONS)"
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X OPTIONS \
+            -H "Origin: https://example.com" \
+            -H "Access-Control-Request-Method: POST" \
+            -H "Access-Control-Request-Headers: Content-Type" \
+            "$CLOUDRUN_URL/api/ingest")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          
+          echo "HTTP Status: $HTTP_CODE"
+          
+          # CORS preflight should return 204 or 200
+          if [ "$HTTP_CODE" != "204" ] && [ "$HTTP_CODE" != "200" ]; then
+            echo "::warning::CORS preflight returned unexpected status $HTTP_CODE"
+          else
+            echo "✅ CORS preflight passed"
+          fi
+          
+          echo "::endgroup::"
+
+      - name: Test 3 - POST /api/ingest with PDF
+        id: ingest_pdf
+        run: |
+          echo "::group::Testing POST /api/ingest"
+          START_TIME=$(date +%s%3N)
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -F "file=@fixtures/sample-statement.pdf" \
+            -F "documentType=bank_statement" \
+            "$CLOUDRUN_URL/api/ingest")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+          
+          END_TIME=$(date +%s%3N)
+          LATENCY=$((END_TIME - START_TIME))
+          
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Ingest Latency: ${LATENCY}ms"
+          
+          # Save response for debugging
+          echo "$BODY" > /tmp/ingest-response.json
+          
+          # Validate status code (200 for success)
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Ingest failed with status $HTTP_CODE"
+            echo "Response: $BODY"
+            exit 1
+          fi
+          
+          # Validate JSON structure
+          if ! echo "$BODY" | jq -e '.source' > /dev/null; then
+            echo "::error::Ingest response missing 'source' field"
+            exit 1
+          fi
+          
+          if ! echo "$BODY" | jq -e '.document' > /dev/null; then
+            echo "::error::Ingest response missing 'document' field"
+            exit 1
+          fi
+          
+          # Extract exportId for next tests
+          EXPORT_ID=$(echo "$BODY" | jq -r '.exportId // empty')
+          
+          if [ -z "$EXPORT_ID" ]; then
+            echo "::error::Ingest response missing 'exportId'"
+            exit 1
+          fi
+          
+          echo "Export ID: $EXPORT_ID"
+          echo "export_id=$EXPORT_ID" >> $GITHUB_OUTPUT
+          
+          # Check source (documentai or legacy)
+          SOURCE=$(echo "$BODY" | jq -r '.source')
+          echo "Parse Source: $SOURCE"
+          
+          # Validate document structure
+          TRANSACTION_COUNT=$(echo "$BODY" | jq '.document.transactions | length')
+          echo "Transaction Count: $TRANSACTION_COUNT"
+          
+          if [ "$TRANSACTION_COUNT" -lt 1 ]; then
+            echo "::warning::No transactions parsed from document"
+          fi
+          
+          echo "✅ Ingest test passed"
+          echo "::endgroup::"
+
+      - name: Test 4 - GET /api/export/csv
+        id: export_csv
+        if: steps.ingest_pdf.outputs.export_id != ''
+        run: |
+          echo "::group::Testing GET /api/export/csv?exportId=:id"
+          EXPORT_ID="${{ steps.ingest_pdf.outputs.export_id }}"
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            "$CLOUDRUN_URL/api/export/csv?exportId=$EXPORT_ID")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+          
+          echo "HTTP Status: $HTTP_CODE"
+          
+          # Validate status code
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::CSV export failed with status $HTTP_CODE"
+            echo "Response: $BODY"
+            exit 1
+          fi
+          
+          # Save CSV for validation
+          echo "$BODY" > /tmp/export.csv
+          
+          # Validate CSV structure
+          LINE_COUNT=$(echo "$BODY" | wc -l)
+          echo "CSV Lines: $LINE_COUNT"
+          
+          if [ "$LINE_COUNT" -lt 1 ]; then
+            echo "::error::CSV export is empty"
+            exit 1
+          fi
+          
+          # Check for CSV header
+          HEADER=$(echo "$BODY" | head -n1)
+          echo "CSV Header: $HEADER"
+          
+          if ! echo "$HEADER" | grep -E "^date,|,date,|,date$" > /dev/null; then
+            echo "::error::CSV missing 'date' column"
+            exit 1
+          fi
+          
+          # Validate file integrity (CSV should be valid UTF-8)
+          if ! file -b /tmp/export.csv | grep -q "text"; then
+            echo "::error::CSV file is not valid text"
+            exit 1
+          fi
+          
+          echo "✅ CSV export test passed"
+          echo "::endgroup::"
+
+      - name: Test 5 - GET /api/export/pdf
+        id: export_pdf
+        if: steps.ingest_pdf.outputs.export_id != ''
+        run: |
+          echo "::group::Testing GET /api/export/pdf?exportId=:id"
+          EXPORT_ID="${{ steps.ingest_pdf.outputs.export_id }}"
+          
+          HTTP_CODE=$(curl -s -w "%{http_code}" -o /tmp/export.pdf \
+            "$CLOUDRUN_URL/api/export/pdf?exportId=$EXPORT_ID")
+          
+          echo "HTTP Status: $HTTP_CODE"
+          
+          # Validate status code
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::PDF export failed with status $HTTP_CODE"
+            exit 1
+          fi
+          
+          # Validate PDF file integrity
+          if [ ! -f /tmp/export.pdf ]; then
+            echo "::error::PDF file not created"
+            exit 1
+          fi
+          
+          FILE_SIZE=$(stat -c%s /tmp/export.pdf)
+          echo "PDF Size: ${FILE_SIZE} bytes"
+          
+          if [ "$FILE_SIZE" -lt 100 ]; then
+            echo "::error::PDF file is too small (likely invalid)"
+            exit 1
+          fi
+          
+          # Check PDF magic bytes
+          if ! head -c 4 /tmp/export.pdf | grep -q "%PDF"; then
+            echo "::error::PDF file has invalid magic bytes"
+            exit 1
+          fi
+          
+          echo "✅ PDF export test passed"
+          echo "::endgroup::"
+
+      - name: Test 6 - Export Not Found (404)
+        id: error_handling
+        run: |
+          echo "::group::Testing invalid export ID"
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            "$CLOUDRUN_URL/api/export/csv?exportId=invalid-export-id-12345")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+          
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          
+          # Should return 404
+          if [ "$HTTP_CODE" != "404" ]; then
+            echo "::error::Expected 404 for invalid export ID, got $HTTP_CODE"
+            exit 1
+          fi
+          
+          # Should return JSON error
+          if ! echo "$BODY" | jq -e '.error' > /dev/null; then
+            echo "::error::Error response missing 'error' field"
+            exit 1
+          fi
+          
+          echo "✅ 404 test passed"
+          echo "::endgroup::"
+
+      - name: Test 7 - CORS Response Headers
+        run: |
+          echo "::group::Testing CORS response headers"
+          
+          HEADERS=$(curl -s -I -H "Origin: https://example.com" \
+            "$CLOUDRUN_URL/api/health")
+          
+          echo "$HEADERS"
+          
+          # Check for CORS headers (if CORS is configured)
+          if echo "$HEADERS" | grep -qi "access-control-allow"; then
+            echo "✅ CORS headers present"
+          else
+            echo "::notice::CORS headers not found (may not be configured)"
+          fi
+          
+          echo "::endgroup::"
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "## 🧪 Cloud Run E2E Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Service URL:** \`$CLOUDRUN_URL\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Health Check | ${{ steps.health_check.outcome == 'success' && '✅ Pass' || '❌ Fail' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| POST /api/ingest | ${{ steps.ingest_pdf.outcome == 'success' && '✅ Pass' || '❌ Fail' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| CSV Export | ${{ steps.export_csv.outcome == 'success' && '✅ Pass' || (steps.export_csv.outcome == 'skipped' && '⏭️ Skipped' || '❌ Fail') }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| PDF Export | ${{ steps.export_pdf.outcome == 'success' && '✅ Pass' || (steps.export_pdf.outcome == 'skipped' && '⏭️ Skipped' || '❌ Fail') }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Error Handling | ${{ steps.error_handling.outcome == 'success' && '✅ Pass' || '❌ Fail' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -n "${{ steps.health_check.outputs.latency }}" ]; then
+            echo "### Performance Metrics" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Cold Start Latency:** ${{ steps.health_check.outputs.latency }}ms" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ steps.health_check.outcome }}" = "success" ] && \
+             [ "${{ steps.ingest_pdf.outcome }}" = "success" ] && \
+             [ "${{ steps.export_csv.outcome }}" = "success" ] && \
+             [ "${{ steps.export_pdf.outcome }}" = "success" ] && \
+             [ "${{ steps.error_handling.outcome }}" = "success" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **All tests passed!** The Cloud Run deployment is production-ready." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "❌ **Some tests failed.** Review the logs above for details." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Test Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: |
+            /tmp/ingest-response.json
+            /tmp/export.csv
+            /tmp/export.pdf
+          if-no-files-found: ignore
