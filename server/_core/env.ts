@@ -46,43 +46,39 @@ export const ENV = {
 
   // Server
   port: process.env.PORT ?? "",
-  corsAllowOrigin: process.env.CORS_ALLOW_ORIGIN ?? "",
+  corsAllowOrigin: readEnvOrFile("CORS_ALLOW_ORIGIN"),
 
-  // Project / Location
-  gcpProjectId: process.env.GOOGLE_PROJECT_ID ?? process.env.GCP_PROJECT_ID ?? "",
+  // Project / Location (use readEnvOrFile for Secret Manager support)
+  gcpProjectId: readEnvOrFile("GOOGLE_PROJECT_ID") || readEnvOrFile("GCP_PROJECT_ID"),
 
-  gcpLocation: process.env.DOCAI_LOCATION ?? process.env.GCP_LOCATION ?? "us",
+  gcpLocation: readEnvOrFile("DOCAI_LOCATION") || process.env.GCP_LOCATION || "us",
 
-  // Processors
-  docAiProcessorId: process.env.DOCAI_PROCESSOR_ID ?? "",
+  // Processors (use readEnvOrFile for Secret Manager support)
+  docAiProcessorId: readEnvOrFile("DOCAI_PROCESSOR_ID"),
 
   gcpBankProcessorId:
     process.env.DOC_AI_BANK_PROCESSOR_ID ??
     process.env.GCP_BANK_PROCESSOR_ID ??
-    process.env.DOCAI_PROCESSOR_ID ??
-    "",
+    readEnvOrFile("DOCAI_PROCESSOR_ID"),
 
   gcpInvoiceProcessorId:
     process.env.DOC_AI_INVOICE_PROCESSOR_ID ??
     process.env.GCP_INVOICE_PROCESSOR_ID ??
-    process.env.DOCAI_PROCESSOR_ID ??
-    "",
+    readEnvOrFile("DOCAI_PROCESSOR_ID"),
 
   gcpOcrProcessorId:
     process.env.DOC_AI_OCR_PROCESSOR_ID ??
     process.env.GCP_OCR_PROCESSOR_ID ??
-    process.env.DOCAI_PROCESSOR_ID ??
-    "",
+    readEnvOrFile("DOCAI_PROCESSOR_ID"),
 
   gcpFormProcessorId:
     process.env.DOC_AI_FORM_PROCESSOR_ID ??
     process.env.GCP_FORM_PROCESSOR_ID ??
-    process.env.DOCAI_PROCESSOR_ID ??
-    "",
+    readEnvOrFile("DOCAI_PROCESSOR_ID"),
 
-  // Credentials / Secrets
-  gcpCredentialsJson: process.env.GCP_DOCUMENTAI_CREDENTIALS ?? "",
-  gcpServiceAccountJson: process.env.GCP_SERVICE_ACCOUNT_JSON ?? "",
+  // Credentials / Secrets (use readEnvOrFile for Secret Manager support)
+  gcpCredentialsJson: readEnvOrFile("GCP_DOCUMENTAI_CREDENTIALS"),
+  gcpServiceAccountJson: readEnvOrFile("GCP_SERVICE_ACCOUNT_JSON"),
   gcpServiceAccountPath: process.env.GCP_SERVICE_ACCOUNT_PATH ?? "",
 
   // Flags
