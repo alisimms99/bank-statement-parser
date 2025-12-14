@@ -156,7 +156,7 @@ echo -n '{"type":"service_account",...}' | \
 gcloud run services update ${SERVICE_NAME} \
   --region ${REGION} \
   --set-env-vars ENABLE_DOC_AI=true \
-  --update-secrets GCP_SERVICE_ACCOUNT_JSON_FILE=/secrets/gcp-sa:GCP_SERVICE_ACCOUNT_JSON:latest \
+  --update-secrets GCP_SERVICE_ACCOUNT_JSON_FILE=/secrets/gcp-service-account:GCP_SERVICE_ACCOUNT_JSON:latest \
   --set-env-vars DOCAI_LOCATION=us \
   --set-env-vars DOCAI_PROCESSOR_ID=your-processor-id
 ```

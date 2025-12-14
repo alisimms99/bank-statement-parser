@@ -196,9 +196,9 @@ For production deployments, mount secrets as files using the `_FILE` suffix conv
 
 gcloud run services update ${SERVICE_NAME} \
   --region ${REGION} \
-  --update-secrets DATABASE_URL_FILE=/secrets/db:DATABASE_URL:latest \
-  --update-secrets JWT_SECRET_FILE=/secrets/jwt:JWT_SECRET:latest \
-  --update-secrets GCP_SERVICE_ACCOUNT_JSON_FILE=/secrets/gcp:GCP_CREDS:latest
+  --update-secrets DATABASE_URL_FILE=/secrets/database-url:DATABASE_URL:latest \
+  --update-secrets JWT_SECRET_FILE=/secrets/jwt-secret:JWT_SECRET:latest \
+  --update-secrets GCP_SERVICE_ACCOUNT_JSON_FILE=/secrets/gcp-service-account:GCP_SERVICE_ACCOUNT_JSON:latest
 ```
 
 The application automatically reads from `<NAME>_FILE` paths if the direct variable is not set (see `server/_core/env.ts` for implementation).
