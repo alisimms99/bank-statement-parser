@@ -109,7 +109,7 @@ export function registerIngestionRoutes(app: Express) {
       };
       recordIngestFailure(failure);
       logEvent(
-        "ingest_failure",
+        "ingest_error",
         { phase: failure.phase, status: parsed.status, failure, ip: req.ip },
         "warn"
       );
@@ -160,7 +160,7 @@ export function registerIngestionRoutes(app: Express) {
         } else {
           // Log structured error info
           logEvent(
-            "ingest_failure",
+            "ingest_error",
             {
               phase: "docai",
               fileName,

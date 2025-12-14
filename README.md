@@ -73,6 +73,17 @@ The application will be available at `http://localhost:5173`.
 2.  You can toggle the **"Include BOM"** switch to add a UTF-8 Byte Order Mark to the CSV file, which improves compatibility with some spreadsheet software like Microsoft Excel.
 3.  The downloaded CSV file is formatted for direct import into QuickBooks.
 
+## Production Observability
+
+When deployed to Google Cloud Run, the application provides comprehensive observability through structured logging and Cloud Monitoring dashboards. The observability stack includes:
+
+- **Ingestion Metrics**: Track P50/P95 latency, error rates, and throughput
+- **Export Monitoring**: Monitor CSV and PDF export volumes
+- **Cold Start Analysis**: Measure container startup performance
+- **Detailed Logging**: Structured JSON logs for querying and analysis
+
+For setup instructions and dashboard configuration, see [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
+
 ## Known Limitations
 
 - The legacy (non-Document AI) parser is currently optimized for a specific Citizens Bank statement layout. It may not work correctly with other bank statement formats.
