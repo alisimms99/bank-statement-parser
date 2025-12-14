@@ -75,11 +75,15 @@ The application will be available at `http://localhost:5173`.
 
 ## Deployment
 
-This application is designed to run on Google Cloud Run with OAuth2 authentication.
+This application is designed to run on Google Cloud Run with OAuth2 authentication and IAM-based access control.
 
 ### Production Deployment
 
-For production deployment to Google Cloud Run with proper IAM lockdown and security configuration, see the **[Deployment Guide](docs/DEPLOYMENT.md)**.
+**Quick Start:** Follow the **[Quick Start Deployment Guide](docs/QUICK-START-DEPLOYMENT.md)** for a streamlined 5-step deployment process.
+
+**Complete Guide:** For detailed instructions, troubleshooting, and advanced configuration, see the **[Complete Deployment Guide](docs/DEPLOYMENT.md)**.
+
+**Verification:** After deployment, use the **[IAM Verification Guide](docs/IAM-VERIFICATION.md)** to confirm proper security configuration.
 
 Key security features:
 - **IAM-based access control**: Lock down Cloud Run service to your Google Workspace domain only
