@@ -111,7 +111,6 @@ echo ""
 echo "Configuring Docker authentication for GCR..."
 gcloud auth configure-docker gcr.io --quiet
 
-echo ""
 echo "Building Docker image..."
 docker build -t "$IMAGE" .
 

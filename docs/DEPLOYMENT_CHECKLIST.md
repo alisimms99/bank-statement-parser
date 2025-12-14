@@ -53,7 +53,11 @@ Or create manually:
 The service account needs access to secrets:
 
 ```bash
-SERVICE_ACCOUNT="PROJECT_ID@appspot.gserviceaccount.com"
+# Get your project number (different from project ID)
+PROJECT_NUMBER=$(gcloud projects describe YOUR_PROJECT_ID --format="value(projectNumber)")
+
+# Cloud Run uses the default Compute Engine service account
+SERVICE_ACCOUNT="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 
 for secret in jwt-secret google-project-id docai-location docai-processor-id gcp-service-account-json; do
   gcloud secrets add-iam-policy-binding $secret \

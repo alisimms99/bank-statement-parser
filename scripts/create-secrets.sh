@@ -148,9 +148,12 @@ generate_jwt_secret() {
   # Generate a secure random JWT secret (32 bytes = 64 hex characters)
   if command -v openssl &> /dev/null; then
     openssl rand -hex 32
-  else
-    # Fallback: generate 32 random bytes and convert to hex
+  elif command -v xxd &> /dev/null; then
+    # Fallback 1: use xxd if available
     head -c 32 /dev/urandom | xxd -p -c 32
+  else
+    # Fallback 2: use od (more portable)
+    head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'
   fi
 }
 
