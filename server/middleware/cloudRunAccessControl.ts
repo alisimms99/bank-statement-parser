@@ -99,8 +99,16 @@ function sendAuthError(res: Response, status: number, code: string, message: str
  * Tokens are expected as: Authorization: Bearer <OIDC ID token>
  */
 export async function requireCloudRunApiAccess(req: Request, res: Response, next: NextFunction) {
+  // In local dev/test we keep existing flows working by default.
+  // Production deployments (Cloud Run) always enforce access control.
+  const enabled =
+    process.env.NODE_ENV === "production" || process.env.ENABLE_CLOUD_RUN_AUTH === "true";
+  if (!enabled) return next();
+
   // Only protect API endpoints (do not block static assets / client routing).
   if (!req.path.startsWith("/api/")) return next();
+  // Cloud Run health probes do not include auth headers.
+  if (req.path === "/api/health") return next();
 
   const token = parseBearerToken(req.headers.authorization);
   if (!token) {

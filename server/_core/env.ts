@@ -218,8 +218,16 @@ export function assertEnvOnStartup(): void {
   getServerEnv();
 
   const workspaceDomain = process.env.WORKSPACE_DOMAIN?.trim() ?? "";
-  if (!workspaceDomain) {
-    throw new Error("WORKSPACE_DOMAIN is required in production for Cloud Run access control");
+  const internalServiceAccountsRaw = process.env.INTERNAL_SERVICE_ACCOUNT_EMAILS?.trim() ?? "";
+  const hasInternalServiceAccounts = internalServiceAccountsRaw
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean).length > 0;
+
+  if (!workspaceDomain && !hasInternalServiceAccounts) {
+    throw new Error(
+      "Access control misconfigured: WORKSPACE_DOMAIN or INTERNAL_SERVICE_ACCOUNT_EMAILS must be set in production"
+    );
   }
 
   const docAiConfig = getDocumentAiConfig();
