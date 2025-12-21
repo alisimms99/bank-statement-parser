@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { requireCloudRunApiAccess } from "./cloudRunAccessControl";
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const PDF_SIGNATURE = "%PDF-";
@@ -74,7 +75,8 @@ export function applySecurityHeaders(req: Request, res: Response, next: NextFunc
     return res.sendStatus(204);
   }
 
-  return next();
+  // Apply Cloud Run access control to all API endpoints.
+  return requireCloudRunApiAccess(req, res, next);
 }
 
 export function uploadValidationMiddleware(req: Request, res: Response, next: NextFunction) {

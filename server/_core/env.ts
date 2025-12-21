@@ -239,6 +239,19 @@ export function assertEnvOnStartup(): void {
   // Always validate PORT shape in production.
   getServerEnv();
 
+  const workspaceDomain = process.env.WORKSPACE_DOMAIN?.trim() ?? "";
+  const internalServiceAccountsRaw = process.env.INTERNAL_SERVICE_ACCOUNT_EMAILS?.trim() ?? "";
+  const hasInternalServiceAccounts = internalServiceAccountsRaw
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean).length > 0;
+
+  if (!workspaceDomain && !hasInternalServiceAccounts) {
+    throw new Error(
+      "Access control misconfigured: WORKSPACE_DOMAIN or INTERNAL_SERVICE_ACCOUNT_EMAILS must be set in production"
+    );
+  }
+
   const docAiConfig = getDocumentAiConfig();
   if (docAiConfig.enabled && !docAiConfig.ready) {
     throw new Error(
