@@ -153,6 +153,30 @@ function extractYear(fileName: string): string {
 }
 
 export function registerIngestionRoutes(app: Express) {
+  // Status endpoint for deployment information
+  app.get("/api/status", (req, res) => {
+    const config = getDocumentAiConfig();
+    res.json({
+      // Cloud Run environment variables
+      deployedRevision: process.env.K_REVISION || "local",
+      serviceName: process.env.K_SERVICE || "dev",
+      
+      // Build info
+      buildId: process.env.BUILD_ID || process.env.K_REVISION?.split("-").pop() || "unknown",
+      timestamp: new Date().toISOString(),
+      
+      // Feature flags
+      documentAiEnabled: config && config.enabled === true,
+      
+      // App info
+      version: process.env.npm_package_version || "1.0.0",
+      nodeEnv: process.env.NODE_ENV || "development",
+      
+      // Uptime
+      uptimeSeconds: Math.floor(process.uptime()),
+    });
+  });
+
   // Support both multipart and JSON
   app.post("/api/ingest", upload.single("file"), async (req, res) => {
     const parsed = parseRequest(req);
