@@ -1,0 +1,10 @@
+{
+  "description": "Count of successful ingestions",
+  "filter": "jsonPayload.event=\"ingestion_complete\"",
+  "metricDescriptor": {
+    "metricKind": "DELTA",
+    "valueType": "INT64",
+    "unit": "1",
+    "displayName": "Ingestion complete"
+  }
+}

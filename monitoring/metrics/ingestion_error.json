@@ -1,0 +1,10 @@
+{
+  "description": "Count of failed ingestions",
+  "filter": "jsonPayload.event=\"ingestion_error\"",
+  "metricDescriptor": {
+    "metricKind": "DELTA",
+    "valueType": "INT64",
+    "unit": "1",
+    "displayName": "Ingestion error"
+  }
+}

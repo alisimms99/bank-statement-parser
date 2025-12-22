@@ -1,0 +1,10 @@
+{
+  "description": "Cold start occurrences",
+  "filter": "textPayload=~\"Cold start\" OR jsonPayload.message=~\"Cold start\" OR jsonPayload.msg=~\"Cold start\"",
+  "metricDescriptor": {
+    "metricKind": "DELTA",
+    "valueType": "INT64",
+    "unit": "1",
+    "displayName": "Cold starts"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "description": "Ingestion processing time in ms",
+  "filter": "jsonPayload.event=\"ingestion_complete\" AND jsonPayload.durationMs>0",
+  "metricDescriptor": {
+    "metricKind": "DELTA",
+    "valueType": "DISTRIBUTION",
+    "unit": "ms",
+    "displayName": "Ingestion latency"
+  },
+  "valueExtractor": "EXTRACT(jsonPayload.durationMs)",
+  "bucketOptions": {
+    "exponentialBuckets": {
+      "numFiniteBuckets": 20,
+      "growthFactor": 2,
+      "scale": 1
+    }
+  }
+}
