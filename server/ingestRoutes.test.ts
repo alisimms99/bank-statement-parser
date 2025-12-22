@@ -267,5 +267,34 @@ describe("registerIngestionRoutes", () => {
       expect(res.body.results[1].month).toBeDefined();
       expect(res.body.results[1].year).toBeDefined();
     });
+
+    it("should not extract invalid numeric months from filenames", async () => {
+      const pdfBase64 = Buffer.from("%PDF-1.4 test").toString("base64");
+      processStructuredMock.mockResolvedValue({
+        success: true,
+        document: sampleDocument,
+        processorId: "test-processor-id",
+        processorType: "bank",
+      });
+
+      const app = express();
+      app.use(express.json());
+      registerIngestionRoutes(app);
+
+      const res = await request(app).post("/api/ingest/bulk").send({
+        files: [
+          { fileName: "report-99-summary.pdf", contentBase64: pdfBase64 },
+          { fileName: "invoice-50-data.pdf", contentBase64: pdfBase64 },
+          { fileName: "statement-2024-13.pdf", contentBase64: pdfBase64 },
+        ],
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.results).toHaveLength(3);
+      // Months should be empty strings for invalid numeric values
+      expect(res.body.results[0].month).toBe("");
+      expect(res.body.results[1].month).toBe("");
+      expect(res.body.results[2].month).toBe("");
+    });
   });
 });

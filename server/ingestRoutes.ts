@@ -113,11 +113,21 @@ async function processLegacyFallback(
   }
 }
 
-// Helper to extract month from filename (e.g., "statement-2024-03.pdf" -> "03")
+// Helper to extract a valid month from filename (e.g., "statement-2024-03.pdf" -> "03")
+// Rules:
+// - Accept only numeric months 01-12 when delimited by '-' or '_' and followed by '-', '_' or '.'
+// - Accept short month names (jan-dec) after '-' or '_'
 function extractMonth(fileName: string): string {
-  const match = fileName.match(/[-_](\d{2})[-_.]|[-_](jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i);
+  // Capture either:
+  // 1) a valid 2-digit month 01-12 between delimiters, or
+  // 2) a short month name (jan-dec) preceded by '-' or '_'
+  const match = fileName.match(
+    /[-_](0[1-9]|1[0-2])(?=[-_.])|[-_](jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i
+  );
   if (match) {
+    // Numeric month (01-12)
     if (match[1]) return match[1];
+    // Short month name
     const monthMap: Record<string, string> = {
       jan: "01",
       feb: "02",
