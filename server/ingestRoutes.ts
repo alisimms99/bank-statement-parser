@@ -1,6 +1,7 @@
 import type { Express, Request } from "express";
 import multer from "multer";
 import { z } from "zod";
+import { randomUUID } from "crypto";
 import { processWithDocumentAI, processWithDocumentAIStructured } from "./_core/documentAIClient";
 import { getDocumentAiConfig } from "./_core/env";
 import type { CanonicalDocument, CanonicalTransaction } from "@shared/transactions";
@@ -8,7 +9,7 @@ import type { DocumentAiTelemetry, IngestionFailure } from "@shared/types";
 import { legacyTransactionsToCanonical, parseStatementText } from "@shared/legacyStatementParser";
 import { storeTransactions } from "./exportRoutes";
 import { recordIngestFailure, recordIngestMetric } from "./_core/metrics";
-import { logEvent, serializeError } from "./_core/log";
+import { logEvent, serializeError, logIngestionError, logIngestionSuccess } from "./_core/log";
 import { extractTextFromPDFBuffer } from "./_core/pdfText";
 
 // Support both JSON and multipart form data
@@ -25,6 +26,33 @@ const jsonIngestSchema = z.object({
 const multipartIngestSchema = z.object({
   documentType: z.enum(["bank_statement", "invoice", "receipt"]).default("bank_statement"),
 });
+
+// Schema for bulk ingestion
+const bulkIngestSchema = z.object({
+  files: z
+    .array(
+      z.object({
+        fileName: z.string(),
+        contentBase64: z.string(),
+        documentType: z.enum(["bank_statement", "invoice", "receipt"]).default("bank_statement"),
+      })
+    )
+    .min(1)
+    .max(60),
+});
+
+// Rate limiting for bulk uploads
+const BULK_MAX_FILES = 60;
+const BULK_MAX_SIZE_PER_FILE = 10 * 1024 * 1024; // 10MB per file
+
+interface BulkIngestionResult {
+  month: string;
+  year: string;
+  exportId: string;
+  transactions: number;
+  status: "success" | "error";
+  error?: string;
+}
 
 interface ParsedRequest {
   fileName: string;
@@ -83,6 +111,35 @@ async function processLegacyFallback(
     console.warn("Legacy parser failed", error);
     return [];
   }
+}
+
+// Helper to extract month from filename (e.g., "statement-2024-03.pdf" -> "03")
+function extractMonth(fileName: string): string {
+  const match = fileName.match(/[-_](\d{2})[-_.]|[-_](jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i);
+  if (match) {
+    if (match[1]) return match[1];
+    const monthMap: Record<string, string> = {
+      jan: "01",
+      feb: "02",
+      mar: "03",
+      apr: "04",
+      may: "05",
+      jun: "06",
+      jul: "07",
+      aug: "08",
+      sep: "09",
+      oct: "10",
+      nov: "11",
+      dec: "12",
+    };
+    return monthMap[match[2].toLowerCase()] || "";
+  }
+  return "";
+}
+
+function extractYear(fileName: string): string {
+  const match = fileName.match(/(20\d{2})/);
+  return match ? match[1] : new Date().getFullYear().toString();
 }
 
 export function registerIngestionRoutes(app: Express) {
@@ -203,6 +260,8 @@ export function registerIngestionRoutes(app: Express) {
           fallbackReason: null,
         });
 
+        // Use structured logging for success
+        logIngestionSuccess(exportId, fileName, docAIDocument.transactions.length, "documentai", durationMs);
         logEvent("ingest_complete", {
           source: "documentai",
           fileName,
@@ -244,6 +303,7 @@ export function registerIngestionRoutes(app: Express) {
 
       // Store transactions and include export ID
       const exportId = storeTransactions(legacyTransactions);
+      const totalDurationMs = Date.now() - startTime;
 
       // Record ingest telemetry for legacy fallback
       recordIngestMetric({
@@ -254,12 +314,14 @@ export function registerIngestionRoutes(app: Express) {
         fallbackReason,
       });
 
+      // Use structured logging for success
+      logIngestionSuccess(exportId, fileName, legacyTransactions.length, "legacy", totalDurationMs);
       logEvent("ingest_complete", {
         source: "legacy",
         fileName,
         documentType,
         transactionCount: legacyTransactions.length,
-        durationMs: Date.now() - startTime,
+        durationMs: totalDurationMs,
         fallbackReason,
         exportId,
       });
@@ -279,15 +341,21 @@ export function registerIngestionRoutes(app: Express) {
         docAiFailure,
       });
     } catch (error) {
+      const errorDurationMs = Date.now() - startTime;
+      const exportId = randomUUID(); // Generate export ID for error tracking
+      const errorObj = error instanceof Error ? error : new Error("Failed to ingest document");
+      
+      // Use structured logging for errors (Google Cloud Error Reporting compatible)
+      logIngestionError(exportId, fileName, errorObj, "extraction");
       logEvent(
         "ingest_failure",
-        { phase: "unknown", fileName, documentType, error: serializeError(error), durationMs: Date.now() - startTime },
+        { phase: "unknown", fileName, documentType, error: serializeError(error), durationMs: errorDurationMs },
         "error"
       );
-      const errorDurationMs = Date.now() - startTime;
+      
       const failure: IngestionFailure = {
         phase: "unknown",
-        message: error instanceof Error ? error.message : "Failed to ingest document",
+        message: errorObj.message,
         ts: Date.now(),
         hint: `file=${fileName} documentType=${documentType}`,
       };
@@ -307,6 +375,7 @@ export function registerIngestionRoutes(app: Express) {
         fallback: "legacy",
         source: "error",
         failure,
+        exportId, // Include export ID for error tracking
         docAiTelemetry: {
           enabled: false,
           processor: null,
@@ -315,5 +384,166 @@ export function registerIngestionRoutes(app: Express) {
         } satisfies DocumentAiTelemetry,
       });
     }
+  });
+
+  // Bulk ingestion endpoint
+  app.post("/api/ingest/bulk", async (req, res) => {
+    const batchId = randomUUID();
+    const batchStartTime = Date.now();
+
+    // Validate request body
+    const parsed = bulkIngestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      // Check if the error is specifically about too many files
+      const errors = parsed.error?.issues || [];
+      const tooManyFilesError = errors.find(
+        (e) => e.code === "too_big" && e.path?.[0] === "files"
+      );
+      
+      if (tooManyFilesError) {
+        // Try to extract the actual count from the request body
+        const receivedCount = Array.isArray(req.body.files) ? req.body.files.length : 0;
+        const failure: IngestionFailure = {
+          phase: "upload",
+          message: `Too many files. Maximum is ${BULK_MAX_FILES}`,
+          ts: Date.now(),
+          hint: `received=${receivedCount}`,
+        };
+        recordIngestFailure(failure);
+        logEvent("bulk_ingest_failure", { batchId, error: "Too many files", received: receivedCount }, "warn");
+        return res.status(400).json({
+          error: `Too many files. Maximum is ${BULK_MAX_FILES}`,
+          received: receivedCount,
+        });
+      }
+
+      const failure: IngestionFailure = {
+        phase: "upload",
+        message: "Invalid bulk request",
+        ts: Date.now(),
+        hint: "Request validation failed",
+      };
+      recordIngestFailure(failure);
+      logEvent("bulk_ingest_failure", { batchId, error: "Invalid request", details: parsed.error }, "warn");
+      return res.status(400).json({ error: "Invalid request", details: parsed.error });
+    }
+
+    const { files } = parsed.data;
+
+    logEvent("bulk_ingest_start", { batchId, fileCount: files.length });
+
+    const results: BulkIngestionResult[] = [];
+    const config = getDocumentAiConfig();
+    const isDocAIEnabled = config && config.enabled === true;
+
+    // Process files sequentially to avoid OOM
+    for (const file of files) {
+      const fileStartTime = Date.now();
+      const exportId = randomUUID();
+
+      try {
+        // Validate file size
+        const fileSize = Buffer.byteLength(file.contentBase64, "base64");
+        if (fileSize > BULK_MAX_SIZE_PER_FILE) {
+          const errorMessage = `File too large: ${Math.round(fileSize / 1024 / 1024)}MB exceeds ${BULK_MAX_SIZE_PER_FILE / 1024 / 1024}MB limit`;
+          results.push({
+            month: extractMonth(file.fileName),
+            year: extractYear(file.fileName),
+            exportId: "",
+            transactions: 0,
+            status: "error",
+            error: errorMessage,
+          });
+          logIngestionError(exportId, file.fileName, new Error(errorMessage), "upload");
+          continue;
+        }
+
+        const buffer = Buffer.from(file.contentBase64, "base64");
+        const documentType = file.documentType || "bank_statement";
+
+        let document: CanonicalDocument | null = null;
+        let source: "documentai" | "legacy" = "legacy";
+
+        // Try Document AI first (if enabled)
+        if (isDocAIEnabled) {
+          const docAIResult = await processWithDocumentAIStructured(buffer, documentType);
+          if (docAIResult.success && docAIResult.document.transactions.length > 0) {
+            document = docAIResult.document;
+            source = "documentai";
+          }
+        }
+
+        // Fallback to legacy if Document AI failed or disabled
+        if (!document || document.transactions.length === 0) {
+          const legacyTransactions = await processLegacyFallback(buffer, documentType);
+          document = {
+            documentType,
+            transactions: legacyTransactions,
+            warnings: isDocAIEnabled
+              ? ["Document AI processing failed, using legacy parser"]
+              : ["Document AI is disabled"],
+            rawText: undefined,
+          };
+          source = "legacy";
+        }
+
+        // Store transactions
+        const storedExportId = storeTransactions(document.transactions);
+        const durationMs = Date.now() - fileStartTime;
+
+        // Log success
+        logIngestionSuccess(storedExportId, file.fileName, document.transactions.length, source, durationMs);
+
+        // Record metrics
+        recordIngestMetric({
+          source,
+          durationMs,
+          documentType,
+          timestamp: Date.now(),
+          fallbackReason: source === "legacy" ? (isDocAIEnabled ? "failed" : "disabled") : null,
+        });
+
+        results.push({
+          month: extractMonth(file.fileName),
+          year: extractYear(file.fileName),
+          exportId: storedExportId,
+          transactions: document.transactions.length,
+          status: "success",
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        console.error(`Error processing ${file.fileName}:`, error);
+        logIngestionError(exportId, file.fileName, error instanceof Error ? error : new Error(errorMessage), "extraction");
+
+        results.push({
+          month: extractMonth(file.fileName),
+          year: extractYear(file.fileName),
+          exportId: "",
+          transactions: 0,
+          status: "error",
+          error: errorMessage,
+        });
+      }
+    }
+
+    const batchDurationMs = Date.now() - batchStartTime;
+    const successful = results.filter((r) => r.status === "success").length;
+    const failed = results.filter((r) => r.status === "error").length;
+
+    logEvent("bulk_ingest_complete", {
+      batchId,
+      totalFiles: files.length,
+      successful,
+      failed,
+      durationMs: batchDurationMs,
+    });
+
+    res.json({
+      batchId,
+      totalFiles: files.length,
+      successful,
+      failed,
+      results,
+    });
   });
 }
