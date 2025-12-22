@@ -7,7 +7,9 @@ export async function setupVite(app: Express, server: Server) {
   // Dynamic import - only loads vite in development
   const { createServer: createViteServer } = await import("vite");
   const { nanoid } = await import("nanoid");
-  const viteConfig = (await import("../../vite.config")).default;
+  // Use dynamic path resolution to prevent esbuild from bundling vite.config.ts
+  const viteConfigPath = path.resolve(import.meta.dirname, "../..", "vite.config.ts");
+  const viteConfig = (await import(viteConfigPath)).default;
 
   const serverOptions = {
     middlewareMode: true,
