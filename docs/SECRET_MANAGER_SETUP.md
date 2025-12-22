@@ -28,7 +28,7 @@ echo -n "your-processor-id" | gcloud secrets create DOCAI_PROCESSOR_ID --data-fi
 echo -n "true" | gcloud secrets create ENABLE_DOC_AI --data-file=-
 
 # Security secrets
-openssl rand -base64 32 | gcloud secrets create JWT_SECRET --data-file=-
+openssl rand -base64 32 | tr -d '\n' | gcloud secrets create JWT_SECRET --data-file=-
 
 # Database
 echo -n "mysql://user:pass@host:3306/dbname" | gcloud secrets create DATABASE_URL --data-file=-
