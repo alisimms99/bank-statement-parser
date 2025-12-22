@@ -268,4 +268,33 @@ describe("registerIngestionRoutes", () => {
       expect(res.body.results[1].year).toBeDefined();
     });
   });
+
+  describe("GET /api/status", () => {
+    it("should return deployment status", async () => {
+      const app = express();
+      app.use(express.json());
+      registerIngestionRoutes(app);
+
+      const response = await request(app).get("/api/status");
+      
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty("deployedRevision");
+      expect(response.body).toHaveProperty("timestamp");
+      expect(response.body).toHaveProperty("documentAiEnabled");
+      expect(response.body).toHaveProperty("version");
+      expect(response.body).toHaveProperty("uptimeSeconds");
+      expect(typeof response.body.uptimeSeconds).toBe("number");
+    });
+
+    it("should indicate local development when not on Cloud Run", async () => {
+      const app = express();
+      app.use(express.json());
+      registerIngestionRoutes(app);
+
+      const response = await request(app).get("/api/status");
+      
+      // In test environment, K_REVISION is not set
+      expect(response.body.deployedRevision).toBe("local");
+    });
+  });
 });

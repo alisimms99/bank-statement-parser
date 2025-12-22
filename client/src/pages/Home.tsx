@@ -18,9 +18,10 @@ import { ingestWithDocumentAI, type IngestionSource } from "@/lib/ingestionClien
 import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
 import type { DocumentAiTelemetry, IngestionFailure } from "@shared/types";
-import { Download, Eye, FileText, Loader2 } from "lucide-react";
+import { Download, Eye, FileText, Loader2, Settings } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { AdminStatusPanel } from "@/components/AdminStatusPanel";
 
 // Check if debug view is enabled via environment variable
 // Supports both VITE_DEBUG_VIEW (Vite convention) and DEBUG_VIEW (as specified in requirements)
@@ -40,6 +41,7 @@ export default function Home() {
   const [fallbackReason, setFallbackReason] = useState<string | undefined>(undefined);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [exportId, setExportId] = useState<string | undefined>();
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
   
   // Cache files for retry functionality
   const fileCache = useRef<Map<string, File>>(new Map());
@@ -324,18 +326,28 @@ export default function Home() {
         {/* Header */}
         <header className="border-b border-border/50 backdrop-blur-md bg-background/30">
           <div className="container mx-auto px-6 py-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <FileText className="w-6 h-6 text-primary" />
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <FileText className="w-6 h-6 text-primary" />
+                </div>
+                <div>
+                  <h1 className="text-2xl font-bold text-foreground">
+                    Bank Statement Parser
+                  </h1>
+                  <p className="text-sm text-muted-foreground">
+                    Extract transactions from PDF statements for QuickBooks reconciliation
+                  </p>
+                </div>
               </div>
-              <div>
-                <h1 className="text-2xl font-bold text-foreground">
-                  Bank Statement Parser
-                </h1>
-                <p className="text-sm text-muted-foreground">
-                  Extract transactions from PDF statements for QuickBooks reconciliation
-                </p>
-              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowAdminPanel(!showAdminPanel)}
+                title="Deployment Status"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
             </div>
           </div>
         </header>
@@ -559,6 +571,13 @@ export default function Home() {
         source={ingestionSource}
         processedFiles={processedFiles}
       />
+
+      {/* Admin Status Panel */}
+      {showAdminPanel && (
+        <div className="fixed bottom-4 right-4 z-50">
+          <AdminStatusPanel />
+        </div>
+      )}
     </div>
   );
 }
