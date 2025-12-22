@@ -1,0 +1,66 @@
+{
+  "displayName": "Bank Statement Parser - Production",
+  "gridLayout": {
+    "columns": "2",
+    "widgets": [
+      {
+        "title": "Ingestion Volume",
+        "xyChart": {
+          "dataSets": [{
+            "timeSeriesQuery": {
+              "timeSeriesFilter": {
+                "filter": "metric.type=\"logging.googleapis.com/user/ingestion_complete\"",
+                "aggregation": {
+                  "alignmentPeriod": "60s",
+                  "perSeriesAligner": "ALIGN_RATE"
+                }
+              }
+            }
+          }]
+        }
+      },
+      {
+        "title": "Error Rate",
+        "xyChart": {
+          "dataSets": [{
+            "timeSeriesQuery": {
+              "timeSeriesFilter": {
+                "filter": "metric.type=\"logging.googleapis.com/user/ingestion_error\"",
+                "aggregation": {
+                  "alignmentPeriod": "60s", 
+                  "perSeriesAligner": "ALIGN_RATE"
+                }
+              }
+            }
+          }]
+        }
+      },
+      {
+        "title": "P50/P95 Latency",
+        "xyChart": {
+          "dataSets": [{
+            "timeSeriesQuery": {
+              "timeSeriesFilter": {
+                "filter": "metric.type=\"logging.googleapis.com/user/ingestion_latency\"",
+                "aggregation": {
+                  "alignmentPeriod": "60s",
+                  "perSeriesAligner": "ALIGN_PERCENTILE_50"
+                }
+              }
+            }
+          }]
+        }
+      },
+      {
+        "title": "Cold Starts",
+        "scorecard": {
+          "timeSeriesQuery": {
+            "timeSeriesFilter": {
+              "filter": "metric.type=\"logging.googleapis.com/user/cold_start\""
+            }
+          }
+        }
+      }
+    ]
+  }
+}

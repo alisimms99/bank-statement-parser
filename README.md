@@ -73,6 +73,56 @@ The application will be available at `http://localhost:5173`.
 2.  You can toggle the **"Include BOM"** switch to add a UTF-8 Byte Order Mark to the CSV file, which improves compatibility with some spreadsheet software like Microsoft Excel.
 3.  The downloaded CSV file is formatted for direct import into QuickBooks.
 
+## Production Secrets Management
+
+This application uses Google Cloud Secret Manager for production secrets. 
+
+### Required Secrets
+
+Create these secrets in Secret Manager:
+
+| Secret Name | Description |
+|-------------|-------------|
+| `GOOGLE_PROJECT_ID` | Your GCP project ID |
+| `DOCAI_LOCATION` | Document AI location (e.g., `us`) |
+| `DOCAI_PROCESSOR_ID` | Your Document AI processor ID |
+| `ENABLE_DOC_AI` | `true` or `false` |
+| `JWT_SECRET` | Random string for JWT signing |
+| `GCP_SERVICE_ACCOUNT_JSON` | Service account key JSON (file mount) |
+| `DATABASE_URL` | MySQL connection string |
+| `CORS_ALLOW_ORIGIN` | Allowed CORS origin URL |
+
+### Creating Secrets
+
+```bash
+# Create a secret
+echo -n "your-value" | gcloud secrets create SECRET_NAME --data-file=-
+
+# Or from a file (for JSON)
+gcloud secrets create GCP_SERVICE_ACCOUNT_JSON --data-file=service-account.json
+```
+
+### Cloud Run Configuration
+
+Secrets are mounted as environment variables in Cloud Run:
+
+```bash
+gcloud run deploy bank-statement-parser \
+  --set-secrets="GOOGLE_PROJECT_ID=GOOGLE_PROJECT_ID:latest" \
+  --set-secrets="JWT_SECRET=JWT_SECRET:latest" \
+  --set-secrets="DATABASE_URL=DATABASE_URL:latest" \
+  # ... etc
+```
+
+For the service account JSON, mount as a file:
+
+```bash
+gcloud run deploy bank-statement-parser \
+  --set-secrets="/secrets/gcp-sa.json=GCP_SERVICE_ACCOUNT_JSON:latest"
+```
+
+See `docs/SECRET_MANAGER_SETUP.md` for detailed instructions.
+
 ## Known Limitations
 
 - The legacy (non-Document AI) parser is currently optimized for a specific Citizens Bank statement layout. It may not work correctly with other bank statement formats.
