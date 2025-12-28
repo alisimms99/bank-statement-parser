@@ -1100,13 +1100,14 @@ function parseCapitalOneTableItem(
   const month = monthMap[monthName.toLowerCase()];
   if (!month) return null;
   
-  // Year inference: if transaction month > statement month + 1, it's previous year
-  // Example: Dec transactions on Jan statement → previous year
+  // Year inference (Capital One): some early-year statements (Jan–Mar) can include
+  // late-year transactions (Oct–Dec) from the prior year. Only roll back the year
+  // for that specific wraparound case.
   let year = inferredYear || new Date().getFullYear();
   if (statementMonth !== undefined) {
-    if (month > statementMonth + 1) {
-      year = year - 1; // Handle Dec transactions on Jan statement
-    }
+    const isEarlyYearStatement = statementMonth <= 3; // Jan–Mar
+    const isLateYearTransaction = month >= 10; // Oct–Dec
+    if (isEarlyYearStatement && isLateYearTransaction) year -= 1;
   }
   
   const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
