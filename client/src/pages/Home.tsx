@@ -264,9 +264,9 @@ export default function Home() {
   };
 
   const handleClearAll = () => {
-    // Clear all storage and reset state
-    localStorage.clear();
-    sessionStorage.clear();
+    // Clear only transaction-related persisted state (do NOT wipe unrelated app prefs/auth cache)
+    localStorage.removeItem("normalizedTransactions");
+    localStorage.removeItem("ingestLog");
     setTransactions([]);
     setNormalizedTransactions([]);
     setProcessedFiles([]);
@@ -277,8 +277,6 @@ export default function Home() {
     setFallbackReason(undefined);
     setExportId(undefined);
     fileCache.current.clear();
-    hasHydratedFromStorageRef.current = false;
-    hasHydratedIngestLogRef.current = false;
     toast.success("All data cleared. Ready for new batch.");
   };
 
