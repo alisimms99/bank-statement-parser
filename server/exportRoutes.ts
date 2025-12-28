@@ -129,41 +129,74 @@ function checkExportStatus(id: string): { found: boolean; expired: boolean } {
  * Generate stub PDF buffer (placeholder for future PDF rendering)
  */
 function generateStubPDF(transactions: CanonicalTransaction[]): Buffer {
-  // Stub PDF content - minimal valid PDF structure
-  const pdfContent = `%PDF-1.4
-1 0 obj
+  // NOTE: This is a stub generator, but it must still produce a structurally-valid PDF.
+  // In particular, stream `/Length` and xref offsets must match the actual bytes.
+
+  const escapePdfString = (value: string): string =>
+    value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+
+  const header = "%PDF-1.4\n";
+
+  const obj1 = `1 0 obj
 << /Type /Catalog /Pages 2 0 R >>
 endobj
-2 0 obj
+`;
+
+  const obj2 = `2 0 obj
 << /Type /Pages /Kids [3 0 R] /Count 1 >>
 endobj
-3 0 obj
+`;
+
+  const obj3 = `3 0 obj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>
 endobj
-4 0 obj
-<< /Length 100 >>
-stream
-BT
+`;
+
+  const text = escapePdfString(`Bank Transactions Export - ${transactions.length} transactions`);
+  const streamContent = `BT
 /F1 12 Tf
 100 700 Td
-(Bank Transactions Export - ${transactions.length} transactions) Tj
+(${text}) Tj
 ET
-endstream
+`;
+  const streamLengthBytes = Buffer.byteLength(streamContent, "utf8");
+
+  const obj4 = `4 0 obj
+<< /Length ${streamLengthBytes} >>
+stream
+${streamContent}endstream
 endobj
-xref
+`;
+
+  const objects = [obj1, obj2, obj3, obj4];
+  const offsets: number[] = [0];
+  let cursor = Buffer.byteLength(header, "utf8");
+  for (const obj of objects) {
+    offsets.push(cursor);
+    cursor += Buffer.byteLength(obj, "utf8");
+  }
+
+  const startXref = cursor;
+  const formatOffset = (n: number): string => String(n).padStart(10, "0");
+  const xref =
+    `xref
 0 5
 0000000000 65535 f 
-0000000009 00000 n 
-0000000058 00000 n 
-0000000115 00000 n 
-0000000295 00000 n 
-trailer
+${formatOffset(offsets[1])} 00000 n 
+${formatOffset(offsets[2])} 00000 n 
+${formatOffset(offsets[3])} 00000 n 
+${formatOffset(offsets[4])} 00000 n 
+`;
+
+  const trailer = `trailer
 << /Size 5 /Root 1 0 R >>
 startxref
-395
-%%EOF`;
-  
-  return Buffer.from(pdfContent, "utf-8");
+${startXref}
+%%EOF
+`;
+
+  const pdfContent = header + objects.join("") + xref + trailer;
+  return Buffer.from(pdfContent, "utf8");
 }
 
 export function registerExportRoutes(app: Express): void {
