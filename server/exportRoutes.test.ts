@@ -9,6 +9,25 @@ vi.mock("./_core/exportMetrics", () => ({
   recordExportEvent: vi.fn(),
 }));
 
+// Mock database module to prevent database calls during tests
+vi.mock("./db", () => ({
+  getUserByOpenId: vi.fn(async () => null),
+  upsertUser: vi.fn(async () => undefined),
+}));
+
+// Mock auth middleware to bypass authentication in tests
+vi.mock("./middleware/auth", () => ({
+  requireAuth: vi.fn((req, res, next) => {
+    // Mock user for authenticated requests
+    req.user = { email: "test@example.com", openId: "test-user-id" };
+    next();
+  }),
+  optionalAuth: vi.fn((req, res, next) => {
+    req.user = { email: "test@example.com", openId: "test-user-id" };
+    next();
+  }),
+}));
+
 describe("exportRoutes", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -251,6 +270,40 @@ describe("exportRoutes", () => {
         timestamp: expect.any(Number),
         success: true,
       });
+    });
+
+    it("generates a PDF with correct stream /Length (byte-accurate)", async () => {
+      // `generateStubPDF()` only uses `transactions.length`, so we can repeat the same object.
+      const tx = {
+        date: "2024-01-05",
+        posted_date: "2024-01-05",
+        description: "Test Transaction",
+        payee: "Test Payee",
+        debit: 100.0,
+        credit: 0,
+        balance: 1000.0,
+        account_id: null,
+        source_bank: null,
+        statement_period: { start: null, end: null },
+        metadata: {},
+      } satisfies CanonicalTransaction;
+
+      const manyTransactions: CanonicalTransaction[] = new Array(10_000).fill(tx);
+      const exportId = storeTransactions(manyTransactions);
+
+      const app = express();
+      registerExportRoutes(app);
+
+      const res = await request(app).get(`/api/export/${exportId}/pdf`);
+      expect(res.status).toBe(200);
+
+      const pdf = res.body.toString("utf8");
+      const match = pdf.match(/<< \/Length (\d+) >>\nstream\n([\s\S]*?)endstream\nendobj/);
+      expect(match).not.toBeNull();
+
+      const declaredLength = Number(match![1]);
+      const streamBytes = Buffer.byteLength(match![2], "utf8");
+      expect(declaredLength).toBe(streamBytes);
     });
 
     it("returns 410 for expired export", async () => {

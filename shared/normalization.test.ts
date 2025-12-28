@@ -5,6 +5,7 @@ import {
   normalizeDateString,
   normalizeDocumentAITransactions,
   normalizeLegacyTransactions,
+  type DocumentAiNormalizedDocument,
 } from "./normalization";
 import { docAiBankFixture, legacyTransactionsFixture } from "../fixtures/transactions";
 
@@ -99,5 +100,37 @@ describe("normalizeDocumentAITransactions", () => {
 describe("collapseWhitespace", () => {
   it("trims and collapses repeated whitespace", () => {
     expect(collapseWhitespace("  Hello    World  ")).toBe("Hello World");
+  });
+});
+
+describe("Capital One year inference", () => {
+  it("does not roll back year for later-in-year months on a mid-year statement (regression)", () => {
+    const doc: DocumentAiNormalizedDocument = {
+      text: "Capital One",
+      entities: [
+        {
+          type: "table_item",
+          mentionText: "May 15 SOME MERCHANT $10.00",
+        },
+      ],
+    };
+
+    const result = normalizeDocumentAITransactions(doc, "bank_statement", 2025, "Statement_032025_9163.pdf");
+    expect(result).toEqual(expect.arrayContaining([expect.objectContaining({ posted_date: "2025-05-15" })]));
+  });
+
+  it("rolls back year for late-year (Oct–Dec) transactions on early-year (Jan–Mar) statements", () => {
+    const doc: DocumentAiNormalizedDocument = {
+      text: "Capital One",
+      entities: [
+        {
+          type: "table_item",
+          mentionText: "Dec 31 YEAR END $1.00",
+        },
+      ],
+    };
+
+    const result = normalizeDocumentAITransactions(doc, "bank_statement", 2025, "Statement_012025_9163.pdf");
+    expect(result).toEqual(expect.arrayContaining([expect.objectContaining({ posted_date: "2024-12-31" })]));
   });
 });

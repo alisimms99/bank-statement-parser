@@ -293,8 +293,8 @@ export function downloadCSV(csvContent: string, filename: string = 'transactions
 /**
  * Convert legacy Transaction[] to CanonicalTransaction[]
  */
-export function legacyTransactionsToCanonical(transactions: Transaction[]): CanonicalTransaction[] {
-  return legacyTransactionsToCanonicalShared(transactions);
+export function legacyTransactionsToCanonical(transactions: Transaction[], defaultYear?: string | number): CanonicalTransaction[] {
+  return legacyTransactionsToCanonicalShared(transactions, defaultYear);
 }
 
 /**

@@ -5,6 +5,7 @@ import type { CanonicalTransaction } from "@shared/transactions";
 import type { NormalizedTransaction } from "@shared/types";
 import { recordExportEvent, type ExportFormat } from "./_core/exportMetrics";
 import { logEvent, serializeError } from "./_core/log";
+import { requireAuth } from "./middleware/auth";
 
 // In-memory store for transactions (keyed by UUID)
 // In production, this could be replaced with Redis or a database
@@ -128,41 +129,74 @@ function checkExportStatus(id: string): { found: boolean; expired: boolean } {
  * Generate stub PDF buffer (placeholder for future PDF rendering)
  */
 function generateStubPDF(transactions: CanonicalTransaction[]): Buffer {
-  // Stub PDF content - minimal valid PDF structure
-  const pdfContent = `%PDF-1.4
-1 0 obj
+  // NOTE: This is a stub generator, but it must still produce a structurally-valid PDF.
+  // In particular, stream `/Length` and xref offsets must match the actual bytes.
+
+  const escapePdfString = (value: string): string =>
+    value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+
+  const header = "%PDF-1.4\n";
+
+  const obj1 = `1 0 obj
 << /Type /Catalog /Pages 2 0 R >>
 endobj
-2 0 obj
+`;
+
+  const obj2 = `2 0 obj
 << /Type /Pages /Kids [3 0 R] /Count 1 >>
 endobj
-3 0 obj
+`;
+
+  const obj3 = `3 0 obj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>
 endobj
-4 0 obj
-<< /Length 100 >>
-stream
-BT
+`;
+
+  const text = escapePdfString(`Bank Transactions Export - ${transactions.length} transactions`);
+  const streamContent = `BT
 /F1 12 Tf
 100 700 Td
-(Bank Transactions Export - ${transactions.length} transactions) Tj
+(${text}) Tj
 ET
-endstream
+`;
+  const streamLengthBytes = Buffer.byteLength(streamContent, "utf8");
+
+  const obj4 = `4 0 obj
+<< /Length ${streamLengthBytes} >>
+stream
+${streamContent}endstream
 endobj
-xref
+`;
+
+  const objects = [obj1, obj2, obj3, obj4];
+  const offsets: number[] = [0];
+  let cursor = Buffer.byteLength(header, "utf8");
+  for (const obj of objects) {
+    offsets.push(cursor);
+    cursor += Buffer.byteLength(obj, "utf8");
+  }
+
+  const startXref = cursor;
+  const formatOffset = (n: number): string => String(n).padStart(10, "0");
+  const xref =
+    `xref
 0 5
 0000000000 65535 f 
-0000000009 00000 n 
-0000000058 00000 n 
-0000000115 00000 n 
-0000000295 00000 n 
-trailer
+${formatOffset(offsets[1])} 00000 n 
+${formatOffset(offsets[2])} 00000 n 
+${formatOffset(offsets[3])} 00000 n 
+${formatOffset(offsets[4])} 00000 n 
+`;
+
+  const trailer = `trailer
 << /Size 5 /Root 1 0 R >>
 startxref
-395
-%%EOF`;
-  
-  return Buffer.from(pdfContent, "utf-8");
+${startXref}
+%%EOF
+`;
+
+  const pdfContent = header + objects.join("") + xref + trailer;
+  return Buffer.from(pdfContent, "utf8");
 }
 
 export function registerExportRoutes(app: Express): void {
@@ -170,7 +204,7 @@ export function registerExportRoutes(app: Express): void {
    * GET /api/export/:id/csv
    * Export transactions as CSV
    */
-  app.get("/api/export/:id/csv", (req, res) => {
+  app.get("/api/export/:id/csv", requireAuth, (req, res) => {
     const { id } = req.params;
     const includeBOM = req.query.bom === "true" || req.query.bom === "1";
     
@@ -280,10 +314,72 @@ export function registerExportRoutes(app: Express): void {
   });
 
   /**
+   * POST /api/export/pdf
+   * Export transactions as PDF from request body (for accumulated transactions)
+   */
+  app.post("/api/export/pdf", requireAuth, (req, res) => {
+    try {
+      const { transactions } = req.body;
+      
+      if (!Array.isArray(transactions) || transactions.length === 0) {
+        return res.status(400).json({ 
+          error: "Invalid request",
+          message: "transactions array is required and must not be empty",
+        });
+      }
+
+      // Generate stub PDF buffer
+      const pdfBuffer = generateStubPDF(transactions);
+      const timestamp = new Date().toISOString().split("T")[0];
+      const filename = `bank-transactions-${timestamp}.pdf`;
+      
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(pdfBuffer);
+
+      logEvent("export_pdf", {
+        exportId: "combined",
+        success: true,
+        status: 200,
+        transactionCount: transactions.length,
+      });
+      
+      recordExportEvent({
+        exportId: "combined",
+        format: "pdf",
+        transactionCount: transactions.length,
+        timestamp: Date.now(),
+        success: true,
+      });
+    } catch (error) {
+      logEvent("export_pdf", { 
+        exportId: "combined", 
+        success: false, 
+        status: 500, 
+        error: serializeError(error) 
+      }, "error");
+      
+      recordExportEvent({
+        exportId: "combined",
+        format: "pdf",
+        transactionCount: 0,
+        timestamp: Date.now(),
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      
+      res.status(500).json({ 
+        error: "Failed to generate PDF export",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
    * GET /api/export/:id/pdf
    * Export transactions as PDF (stub implementation)
    */
-  app.get("/api/export/:id/pdf", (req, res) => {
+  app.get("/api/export/:id/pdf", requireAuth, (req, res) => {
     const { id } = req.params;
     
     // Check export status

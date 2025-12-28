@@ -54,7 +54,8 @@ export async function processWithDocumentAI(
 
 export async function processWithDocumentAIStructured(
   fileBuffer: Buffer,
-  documentType: CanonicalDocument["documentType"]
+  documentType: CanonicalDocument["documentType"],
+  fileName?: string
 ): Promise<DocumentAIResponse> {
   const config = getDocumentAiConfig();
   
@@ -113,8 +114,17 @@ export async function processWithDocumentAIStructured(
   const name = buildProcessorName(config.projectId, config.location, processorId);
   const start = Date.now();
 
-  // Log processor selection for debug panel
+  // Log processor selection and config for debug panel
   console.log(`[Document AI] Processing ${documentType} with processor: ${processorId} (type: ${processorType})`);
+  console.log(`[Document AI] Config:`, {
+    enabled: config.enabled,
+    ready: config.ready,
+    projectId: config.projectId,
+    location: config.location,
+    processorName: name,
+    hasCredentials: !!config.credentials,
+    availableProcessors: Object.keys(config.processors),
+  });
 
   try {
     const [result] = await client.processDocument({
@@ -153,7 +163,62 @@ export async function processWithDocumentAIStructured(
       text: result.document?.text ?? undefined,
     };
 
-    const transactions = normalizeDocumentAITransactions(normalizedDoc, documentType);
+    // Extract year from filename if provided (e.g., "STATEMENTS,September2024-8704.pdf" -> "2024")
+    let defaultYear: number | undefined;
+    if (fileName) {
+      const yearMatch = fileName.match(/(20\d{2})/);
+      if (yearMatch) {
+        defaultYear = parseInt(yearMatch[1], 10);
+      }
+    }
+    
+    const transactions = normalizeDocumentAITransactions(normalizedDoc, documentType, defaultYear, fileName);
+    const processingTime = Date.now() - start;
+
+    // Log processing results
+    console.log(`[Document AI] Processing completed:`, {
+      processorId,
+      processorType,
+      documentType,
+      entityCount: normalizedDoc.entities?.length ?? 0,
+      transactionCount: transactions.length,
+      processingTimeMs: processingTime,
+      hasText: !!normalizedDoc.text,
+      textLength: normalizedDoc.text?.length ?? 0,
+    });
+
+    if (transactions.length === 0) {
+      // Log detailed entity information to help debug why transactions weren't extracted
+      const entityTypes = normalizedDoc.entities?.map(e => e.type).filter((t): t is string => Boolean(t)) ?? [];
+      const entityTypeCounts = entityTypes.reduce((acc, type) => {
+        acc[type] = (acc[type] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      
+      // Sample a few entities to see their structure
+      const sampleEntities = normalizedDoc.entities?.slice(0, 3).map(e => ({
+        type: e.type,
+        mentionText: e.mentionText?.substring(0, 100), // Truncate for logging
+        hasProperties: !!e.properties,
+        propertyTypes: e.properties?.map(p => p.type).filter(Boolean),
+        normalizedValue: e.normalizedValue ? {
+          text: e.normalizedValue.text,
+          hasMoneyValue: !!e.normalizedValue.moneyValue,
+          hasDateValue: !!e.normalizedValue.dateValue,
+        } : null,
+      })) ?? [];
+
+      console.warn(`[Document AI] No transactions extracted from document:`, {
+        processorId,
+        documentType,
+        entityCount: normalizedDoc.entities?.length ?? 0,
+        entityTypes: entityTypes.slice(0, 20), // Show first 20 types
+        entityTypeCounts,
+        tableItemCount: entityTypes.filter(t => t?.toLowerCase().includes("table_item")).length,
+        sampleEntities,
+        hasText: !!normalizedDoc.text,
+      });
+    }
 
     const document: CanonicalDocument = {
       documentType,
@@ -169,8 +234,9 @@ export async function processWithDocumentAIStructured(
       processorType,
     };
   } catch (error) {
-    // Handle API errors
+    // Handle API errors with detailed logging
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorStack = error instanceof Error ? error.stack : undefined;
     const isApiError = error instanceof Error && (
       errorMessage.includes("permission") ||
       errorMessage.includes("authentication") ||
@@ -178,12 +244,37 @@ export async function processWithDocumentAIStructured(
       errorMessage.includes("not found")
     );
 
+    // Log detailed error information
+    console.error("[Document AI] Processing failed:", {
+      processorId,
+      processorType,
+      processorName: name,
+      documentType,
+      errorMessage,
+      errorName: error instanceof Error ? error.name : "Unknown",
+      errorStack,
+      errorDetails: error instanceof Error ? {
+        code: (error as any).code,
+        status: (error as any).status,
+        statusCode: (error as any).statusCode,
+        response: (error as any).response,
+      } : error,
+      isApiError,
+    });
+
     return {
       success: false,
       error: {
         code: isApiError ? "api_error" : "processing_error",
         message: `Document AI processing failed: ${errorMessage}`,
-        details: error,
+        details: {
+          errorMessage,
+          errorName: error instanceof Error ? error.name : "Unknown",
+          errorStack,
+          ...(error instanceof Error && (error as any).code ? { code: (error as any).code } : {}),
+          ...(error instanceof Error && (error as any).status ? { status: (error as any).status } : {}),
+          ...(error instanceof Error && (error as any).statusCode ? { statusCode: (error as any).statusCode } : {}),
+        },
         processorId,
       },
     };

@@ -39,6 +39,11 @@ export const ENV = {
   // OAuth / Identity
   oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
+  
+  // Google OAuth
+  googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
+  googleClientSecret: readEnvOrFile("GOOGLE_CLIENT_SECRET"),
+  oauthCallbackUrl: process.env.OAUTH_CALLBACK_URL ?? "",
 
   // Runtime mode
   isProduction: process.env.NODE_ENV === "production",
@@ -86,6 +91,28 @@ export const ENV = {
   // Flags
   enableDocAi: process.env.ENABLE_DOC_AI === "true",
 };
+
+// Debug logging for Document AI configuration (remove after debugging)
+if (process.env.NODE_ENV !== "production") {
+  console.log("[DEBUG] Document AI Configuration:");
+  console.log("  ENABLE_DOC_AI:", process.env.ENABLE_DOC_AI, "(type:", typeof process.env.ENABLE_DOC_AI, ")");
+  console.log("  ENV.enableDocAi:", ENV.enableDocAi);
+  console.log("  GOOGLE_PROJECT_ID:", process.env.GOOGLE_PROJECT_ID);
+  console.log("  ENV.gcpProjectId:", ENV.gcpProjectId);
+  console.log("  DOCAI_LOCATION:", process.env.DOCAI_LOCATION);
+  console.log("  ENV.gcpLocation:", ENV.gcpLocation);
+  console.log("  DOC_AI_BANK_PROCESSOR_ID:", process.env.DOC_AI_BANK_PROCESSOR_ID);
+  console.log("  ENV.gcpBankProcessorId:", ENV.gcpBankProcessorId);
+  console.log("  GCP_SERVICE_ACCOUNT_PATH:", process.env.GCP_SERVICE_ACCOUNT_PATH);
+  console.log("  ENV.gcpServiceAccountPath:", ENV.gcpServiceAccountPath);
+  const docAiConfig = getDocumentAiConfig();
+  console.log("  getDocumentAiConfig():", {
+    enabled: docAiConfig.enabled,
+    ready: docAiConfig.ready,
+    missing: docAiConfig.missing,
+    reason: docAiConfig.reason,
+  });
+}
 
 // Best-effort Secret Manager warmup (Cloud Run only, SECRET_<KEY> must be set).
 warmupSecret("JWT_SECRET", () => ENV.cookieSecret, v => (ENV.cookieSecret = v));

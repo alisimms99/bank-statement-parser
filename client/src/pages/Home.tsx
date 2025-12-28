@@ -22,12 +22,15 @@ import { Download, Eye, FileText, Loader2, Settings } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AdminStatusPanel } from "@/components/AdminStatusPanel";
+import { UserMenu } from "@/components/UserMenu";
+import { useAuth } from "@/hooks/useAuth";
 
 // Check if debug view is enabled via environment variable
 // Supports both VITE_DEBUG_VIEW (Vite convention) and DEBUG_VIEW (as specified in requirements)
 const DEBUG_VIEW = import.meta.env.VITE_DEBUG_VIEW === "true";
 
 export default function Home() {
+  const { user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [normalizedTransactions, setNormalizedTransactions] = useState<CanonicalTransaction[]>([]);
   const [ingestLog, setIngestLog] = useState<IngestionFailure[]>([]);
@@ -103,10 +106,11 @@ export default function Home() {
 
   const handleFilesSelected = async (files: File[]) => {
     setIsProcessing(true);
-    const allTransactions: Transaction[] = [];
-    const allCanonical: CanonicalTransaction[] = [];
-    const fileNames: string[] = [];
-    let latestSource: IngestionSource = "legacy";
+    // Start with existing transactions to accumulate across multiple uploads
+    const allTransactions: Transaction[] = [...transactions];
+    const allCanonical: CanonicalTransaction[] = [...normalizedTransactions];
+    const fileNames: string[] = [...processedFiles];
+    let latestSource: IngestionSource = ingestionSource;
 
     setDocAiTelemetry(null);
     setFallbackReason(undefined);
@@ -200,7 +204,10 @@ export default function Home() {
           
           const text = await extractTextFromPDF(file);
           const parsedTransactions = parseStatementText(text);
-          const canonical = legacyTransactionsToCanonical(parsedTransactions);
+          // Extract year from filename (e.g., "STATEMENTS,September2024-8704.pdf" -> "2024")
+          const yearMatch = file.name.match(/(20\d{2})/);
+          const defaultYear = yearMatch ? parseInt(yearMatch[1], 10) : undefined;
+          const canonical = legacyTransactionsToCanonical(parsedTransactions, defaultYear);
 
           allTransactions.push(...canonical.map(canonicalToDisplayTransaction));
           allCanonical.push(...canonical);
@@ -256,6 +263,23 @@ export default function Home() {
     toast.info("Pipeline reset. Please upload files again.");
   };
 
+  const handleClearAll = () => {
+    // Clear only transaction-related persisted state (do NOT wipe unrelated app prefs/auth cache)
+    localStorage.removeItem("normalizedTransactions");
+    localStorage.removeItem("ingestLog");
+    setTransactions([]);
+    setNormalizedTransactions([]);
+    setProcessedFiles([]);
+    setFileStatuses({});
+    setIngestLog([]);
+    setIngestionSource("legacy");
+    setDocAiTelemetry(null);
+    setFallbackReason(undefined);
+    setExportId(undefined);
+    fileCache.current.clear();
+    toast.success("All data cleared. Ready for new batch.");
+  };
+
   const handleExportCSV = async () => {
     if (!normalizedTransactions.length) {
       toast.warning("No transactions to export yet");
@@ -263,18 +287,8 @@ export default function Home() {
     }
 
     try {
-      // Use backend export endpoint if exportId is available
-      if (exportId) {
-        const bomParam = includeBom ? "?bom=true" : "";
-        const url = `/api/export/${exportId}/csv${bomParam}`;
-
-        // Use window.location for download to trigger browser download
-        window.location.href = url;
-        toast.success("CSV exported successfully");
-        return;
-      }
-
-      // Fallback to client-side export if no exportId
+      // Always use client-side export to include ALL accumulated transactions
+      // Backend exportId only contains the last file's transactions, not all files
       const csv = toCSV(normalizedTransactions, { includeBOM: includeBom });
       if (!csv || csv.trim().length === 0) {
         toast.error("Nothing to export");
@@ -283,7 +297,7 @@ export default function Home() {
 
       const timestamp = new Date().toISOString().split("T")[0];
       downloadCSV(csv, `bank-transactions-${timestamp}.csv`);
-      toast.success("CSV exported successfully");
+      toast.success(`CSV exported successfully (${normalizedTransactions.length} transactions)`);
     } catch (error) {
       console.error("Error exporting CSV", error);
       toast.error("Nothing to export");
@@ -296,20 +310,38 @@ export default function Home() {
       return;
     }
 
-    // Use backend export endpoint if exportId is available
-    if (exportId) {
-      try {
-        const url = `/api/export/${exportId}/pdf`;
-        
-        // Use window.location for download to trigger browser download
-        window.location.href = url;
-        toast.success('PDF file download started');
-      } catch (error) {
-        console.error("Error downloading PDF from backend", error);
-        toast.error('Failed to download PDF from backend. PDF export is only available for backend-processed documents.');
+    try {
+      // Send all accumulated transactions to backend for PDF generation
+      const response = await fetch('/api/export/pdf', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ transactions: normalizedTransactions }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to generate PDF');
       }
-    } else {
-      toast.error('PDF export is only available for backend-processed documents.');
+
+      // Get PDF blob and trigger download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const timestamp = new Date().toISOString().split("T")[0];
+      a.download = `bank-transactions-${timestamp}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast.success(`PDF exported successfully (${normalizedTransactions.length} transactions)`);
+    } catch (error) {
+      console.error("Error exporting PDF", error);
+      toast.error(error instanceof Error ? error.message : 'Failed to export PDF');
     }
   };
 
@@ -340,14 +372,27 @@ export default function Home() {
                   </p>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowAdminPanel(!showAdminPanel)}
-                title="Deployment Status"
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-2">
+                {normalizedTransactions.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClearAll}
+                    className="text-red-600 hover:text-red-800 hover:bg-red-50"
+                  >
+                    Clear All
+                  </Button>
+                )}
+                {user && <UserMenu user={user} />}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowAdminPanel(!showAdminPanel)}
+                  title="Deployment Status"
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
         </header>

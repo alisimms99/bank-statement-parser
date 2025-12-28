@@ -1,4 +1,7 @@
-import "dotenv/config";
+// CRITICAL: Load environment variables FIRST before any other imports
+// This ensures .env.local is loaded before env.ts evaluates ENV object
+import "./loadEnv";
+
 import express from "express";
 import { createServer } from "http";
 import net from "net";
