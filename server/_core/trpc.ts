@@ -31,7 +31,9 @@ export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 
-    if (!ctx.user || ctx.user.role !== 'admin') {
+    // Check if user exists and has admin role
+    // SessionUser doesn't have role, so only database User can be admin
+    if (!ctx.user || !('role' in ctx.user) || ctx.user.role !== 'admin') {
       throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
 

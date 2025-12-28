@@ -11,6 +11,7 @@ import { storeTransactions } from "./exportRoutes";
 import { recordIngestFailure, recordIngestMetric } from "./_core/metrics";
 import { logEvent, serializeError, logIngestionError, logIngestionSuccess } from "./_core/log";
 import { extractTextFromPDFBuffer } from "./_core/pdfText";
+import { requireAuth } from "./middleware/auth";
 
 // Support both JSON and multipart form data
 const upload = multer({ storage: multer.memoryStorage() });
@@ -94,12 +95,15 @@ function parseRequest(req: Request): ParsedRequest | { error: string; status: nu
 
 async function processLegacyFallback(
   buffer: Buffer,
-  documentType: "bank_statement" | "invoice" | "receipt"
+  documentType: "bank_statement" | "invoice" | "receipt",
+  fileName?: string
 ): Promise<CanonicalTransaction[]> {
   try {
     const text = await extractTextFromPDFBuffer(buffer);
     const legacyTransactions = parseStatementText(text);
-    return legacyTransactionsToCanonical(legacyTransactions);
+    // Extract year from filename if provided
+    const defaultYear = fileName ? extractYear(fileName) : undefined;
+    return legacyTransactionsToCanonical(legacyTransactions, defaultYear);
   } catch (error) {
     // If legacy parser fails, return empty array
     recordIngestFailure({
@@ -178,7 +182,7 @@ export function registerIngestionRoutes(app: Express) {
   });
 
   // Support both multipart and JSON
-  app.post("/api/ingest", upload.single("file"), async (req, res) => {
+  app.post("/api/ingest", requireAuth, upload.single("file"), async (req, res) => {
     const parsed = parseRequest(req);
     
     if ("error" in parsed) {
@@ -222,7 +226,7 @@ export function registerIngestionRoutes(app: Express) {
       
       if (isDocAIEnabled) {
         // Use structured version to get processor info for debug panel
-        const docAIResult = await processWithDocumentAIStructured(buffer, documentType);
+        const docAIResult = await processWithDocumentAIStructured(buffer, documentType, fileName);
         const latencyMs = Date.now() - startTime;
         
         if (docAIResult.success) {
@@ -238,7 +242,18 @@ export function registerIngestionRoutes(app: Express) {
             entityCount: docAIResult.document.transactions.length,
           };
         } else {
-          // Log structured error info
+          // Log structured error info with full details
+          console.error("[Ingest Route] Document AI failed:", {
+            fileName,
+            documentType,
+            errorCode: docAIResult.error.code,
+            errorMessage: docAIResult.error.message,
+            processorId: docAIResult.error.processorId,
+            errorDetails: docAIResult.error.details,
+            durationMs: latencyMs,
+            fullError: docAIResult.error,
+          });
+
           logEvent(
             "ingest_failure",
             {
@@ -250,15 +265,16 @@ export function registerIngestionRoutes(app: Express) {
               processorId: docAIResult.error.processorId,
               details: docAIResult.error.details,
               durationMs: latencyMs,
+              fullError: docAIResult.error,
             },
-            "warn"
+            "error" // Changed from "warn" to "error" for better visibility
           );
 
           docAiFailure = {
             phase: "docai",
             message: docAIResult.error.message ?? "Document AI processing failed",
             ts: Date.now(),
-            hint: `code=${docAIResult.error.code}${docAIResult.error.processorId ? ` processorId=${docAIResult.error.processorId}` : ""}`,
+            hint: `code=${docAIResult.error.code}${docAIResult.error.processorId ? ` processorId=${docAIResult.error.processorId}` : ""}${docAIResult.error.details ? ` details=${JSON.stringify(docAIResult.error.details)}` : ""}`,
           };
           recordIngestFailure(docAiFailure);
           
@@ -323,7 +339,7 @@ export function registerIngestionRoutes(app: Express) {
 
       // Process with legacy parser
       const legacyStartTime = Date.now();
-      const legacyTransactions = (await processLegacyFallback(buffer, documentType)) ?? [];
+      const legacyTransactions = (await processLegacyFallback(buffer, documentType, fileName)) ?? [];
       const legacyDurationMs = Date.now() - legacyStartTime;
       
       const legacyDoc: CanonicalDocument = {
@@ -500,16 +516,26 @@ export function registerIngestionRoutes(app: Express) {
 
         // Try Document AI first (if enabled)
         if (isDocAIEnabled) {
-          const docAIResult = await processWithDocumentAIStructured(buffer, documentType);
+          const docAIResult = await processWithDocumentAIStructured(buffer, documentType, file.fileName);
           if (docAIResult.success && docAIResult.document.transactions.length > 0) {
             document = docAIResult.document;
             source = "documentai";
+          } else if (!docAIResult.success) {
+            // Log Document AI failure in bulk processing
+            console.error(`[Bulk Ingest] Document AI failed for ${file.fileName}:`, {
+              errorCode: docAIResult.error.code,
+              errorMessage: docAIResult.error.message,
+              processorId: docAIResult.error.processorId,
+              errorDetails: docAIResult.error.details,
+            });
+          } else if (docAIResult.success && docAIResult.document.transactions.length === 0) {
+            console.warn(`[Bulk Ingest] Document AI returned no transactions for ${file.fileName}`);
           }
         }
 
         // Fallback to legacy if Document AI failed or disabled
         if (!document || document.transactions.length === 0) {
-          const legacyTransactions = await processLegacyFallback(buffer, documentType);
+          const legacyTransactions = await processLegacyFallback(buffer, documentType, file.fileName);
           document = {
             documentType,
             transactions: legacyTransactions,

@@ -82,7 +82,7 @@ export function parseStatementText(text: string): LegacyTransaction[] {
   }));
 }
 
-export function legacyTransactionsToCanonical(transactions: LegacyTransaction[]): CanonicalTransaction[] {
+export function legacyTransactionsToCanonical(transactions: LegacyTransaction[], defaultYear?: string | number): CanonicalTransaction[] {
   return normalizeLegacyTransactions(
     transactions.map(tx => ({
       date: tx.date,
@@ -90,7 +90,8 @@ export function legacyTransactionsToCanonical(transactions: LegacyTransaction[])
       amount: tx.amount,
       type: tx.type,
       payee: tx.payee,
-    }))
+    })),
+    defaultYear
   );
 }
 

@@ -5,6 +5,7 @@ import type { CanonicalTransaction } from "@shared/transactions";
 import type { NormalizedTransaction } from "@shared/types";
 import { recordExportEvent, type ExportFormat } from "./_core/exportMetrics";
 import { logEvent, serializeError } from "./_core/log";
+import { requireAuth } from "./middleware/auth";
 
 // In-memory store for transactions (keyed by UUID)
 // In production, this could be replaced with Redis or a database
@@ -170,7 +171,7 @@ export function registerExportRoutes(app: Express): void {
    * GET /api/export/:id/csv
    * Export transactions as CSV
    */
-  app.get("/api/export/:id/csv", (req, res) => {
+  app.get("/api/export/:id/csv", requireAuth, (req, res) => {
     const { id } = req.params;
     const includeBOM = req.query.bom === "true" || req.query.bom === "1";
     
@@ -280,10 +281,72 @@ export function registerExportRoutes(app: Express): void {
   });
 
   /**
+   * POST /api/export/pdf
+   * Export transactions as PDF from request body (for accumulated transactions)
+   */
+  app.post("/api/export/pdf", requireAuth, (req, res) => {
+    try {
+      const { transactions } = req.body;
+      
+      if (!Array.isArray(transactions) || transactions.length === 0) {
+        return res.status(400).json({ 
+          error: "Invalid request",
+          message: "transactions array is required and must not be empty",
+        });
+      }
+
+      // Generate stub PDF buffer
+      const pdfBuffer = generateStubPDF(transactions);
+      const timestamp = new Date().toISOString().split("T")[0];
+      const filename = `bank-transactions-${timestamp}.pdf`;
+      
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(pdfBuffer);
+
+      logEvent("export_pdf", {
+        exportId: "combined",
+        success: true,
+        status: 200,
+        transactionCount: transactions.length,
+      });
+      
+      recordExportEvent({
+        exportId: "combined",
+        format: "pdf",
+        transactionCount: transactions.length,
+        timestamp: Date.now(),
+        success: true,
+      });
+    } catch (error) {
+      logEvent("export_pdf", { 
+        exportId: "combined", 
+        success: false, 
+        status: 500, 
+        error: serializeError(error) 
+      }, "error");
+      
+      recordExportEvent({
+        exportId: "combined",
+        format: "pdf",
+        transactionCount: 0,
+        timestamp: Date.now(),
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      
+      res.status(500).json({ 
+        error: "Failed to generate PDF export",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
    * GET /api/export/:id/pdf
    * Export transactions as PDF (stub implementation)
    */
-  app.get("/api/export/:id/pdf", (req, res) => {
+  app.get("/api/export/:id/pdf", requireAuth, (req, res) => {
     const { id } = req.params;
     
     // Check export status
