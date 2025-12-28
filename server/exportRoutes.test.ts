@@ -9,6 +9,25 @@ vi.mock("./_core/exportMetrics", () => ({
   recordExportEvent: vi.fn(),
 }));
 
+// Mock database module to prevent database calls during tests
+vi.mock("./db", () => ({
+  getUserByOpenId: vi.fn(async () => null),
+  upsertUser: vi.fn(async () => undefined),
+}));
+
+// Mock auth middleware to bypass authentication in tests
+vi.mock("./middleware/auth", () => ({
+  requireAuth: vi.fn((req, res, next) => {
+    // Mock user for authenticated requests
+    req.user = { email: "test@example.com", openId: "test-user-id" };
+    next();
+  }),
+  optionalAuth: vi.fn((req, res, next) => {
+    req.user = { email: "test@example.com", openId: "test-user-id" };
+    next();
+  }),
+}));
+
 describe("exportRoutes", () => {
   beforeEach(() => {
     vi.useFakeTimers();
