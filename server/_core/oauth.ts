@@ -156,7 +156,30 @@ export function registerOAuthRoutes(app: Express) {
         try {
           const decoded = JSON.parse(Buffer.from(state, "base64").toString());
           if (decoded.redirect && typeof decoded.redirect === "string") {
-            redirect = decoded.redirect;
+            // Validate redirect to prevent open redirect vulnerability
+            const requestedRedirect = decoded.redirect;
+            
+            // Only allow relative paths (starting with /) or same-origin URLs
+            if (requestedRedirect.startsWith("/")) {
+              // Relative path - safe to use
+              redirect = requestedRedirect;
+            } else {
+              // Absolute URL - verify it's same-origin
+              try {
+                const redirectUrl = new URL(requestedRedirect);
+                const currentOrigin = new URL(ENV.oauthCallbackUrl || "http://localhost:3000").origin;
+                
+                if (redirectUrl.origin === currentOrigin) {
+                  redirect = requestedRedirect;
+                } else {
+                  console.warn("[OAuth] Rejected external redirect:", requestedRedirect);
+                  // Use default redirect for security
+                }
+              } catch {
+                console.warn("[OAuth] Invalid redirect URL:", requestedRedirect);
+                // Use default redirect for invalid URLs
+              }
+            }
           }
         } catch {
           // Invalid state, use default redirect
