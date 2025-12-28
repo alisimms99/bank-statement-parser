@@ -29,6 +29,25 @@ vi.mock("./_core/pdfText", () => ({
   extractTextFromPDFBuffer: vi.fn(async () => "Synthetic PDF text"),
 }));
 
+// Mock database module to prevent database calls during tests
+vi.mock("./db", () => ({
+  getUserByOpenId: vi.fn(async () => null),
+  upsertUser: vi.fn(async () => undefined),
+}));
+
+// Mock auth middleware to bypass authentication in tests
+vi.mock("./middleware/auth", () => ({
+  requireAuth: vi.fn((req, res, next) => {
+    // Mock user for authenticated requests
+    req.user = { email: "test@example.com", openId: "test-user-id" };
+    next();
+  }),
+  optionalAuth: vi.fn((req, res, next) => {
+    req.user = { email: "test@example.com", openId: "test-user-id" };
+    next();
+  }),
+}));
+
 const processMock = processWithDocumentAI as unknown as vi.Mock;
 const processStructuredMock = processWithDocumentAIStructured as unknown as vi.Mock;
 const envMock = getDocumentAiConfig as unknown as vi.Mock;
@@ -49,7 +68,7 @@ const sampleTelemetry = {
 describe("registerIngestionRoutes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset env mock to default (enabled: true)
+    // Reset env mock to default (enabled: true) before each test
     envMock.mockReturnValue({
       enabled: true,
       ready: true,
@@ -62,7 +81,7 @@ describe("registerIngestionRoutes", () => {
   });
 
   afterEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
   });
 
   it("returns Document AI results when enabled and successful", async () => {
