@@ -140,7 +140,14 @@ function detectBankFromContent(
     return 'citi';
   }
   // Distinguish Amazon from Lowe's (both Synchrony but different formats)
-  if (first500Chars.includes('amazon') && (first500Chars.includes('syf.com') || first500Chars.includes('prime store card') || first500Chars.includes('amazon.*synchrony'))) {
+  // NOTE: `String.includes()` is literal, so patterns like "amazon.*synchrony" must use regex.
+  const amazonSynchronyPattern = /amazon[\s\S]*(synchrony|syncb)/i;
+  if (
+    first500Chars.includes('amazon') &&
+    (first500Chars.includes('syf.com') ||
+      first500Chars.includes('prime store card') ||
+      amazonSynchronyPattern.test(first500Chars))
+  ) {
     return 'amazon-synchrony';
   }
   if (first500Chars.includes('lowe') && (first500Chars.includes('pro') || first500Chars.includes('rewards') || first500Chars.includes('lowes.com'))) {

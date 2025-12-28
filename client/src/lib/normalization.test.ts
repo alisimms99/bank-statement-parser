@@ -47,6 +47,35 @@ describe('normalizeDocumentAITransactions', () => {
       expect.objectContaining({ posted_date: '2024-01-06', payee: 'PAYROLL INC', credit: 1200, debit: 0 })
     ]);
   });
+
+  it('routes Amazon/Synchrony statements to the Amazon parser (minus-sign convention)', () => {
+    const doc: DocumentAiNormalizedDocument = {
+      text: `
+Amazon Store Card
+Issued by Synchrony Bank
+30 Day Billing Cycle from 09/03/2025 to 10/02/2025
+`,
+      entities: [
+        {
+          type: 'table_item',
+          mentionText: '09/25 F9342008C00CHGDDA AUTOMATIC PAYMENT - THANK YOU -$290.88',
+        },
+        {
+          type: 'table_item',
+          mentionText: '09/04 P9342007REHM6B7Y0 AMAZON RETAIL SEATTLE WA $37.57',
+        },
+      ],
+    };
+
+    const result = normalizeDocumentAITransactions(doc, 'bank_statement');
+
+    expect(result).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ posted_date: '2025-09-25', debit: 0, credit: 290.88 }),
+        expect.objectContaining({ posted_date: '2025-09-04', debit: 37.57, credit: 0 }),
+      ])
+    );
+  });
 });
 
 describe('normalizeAmount', () => {
