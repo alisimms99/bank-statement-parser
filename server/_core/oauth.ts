@@ -159,21 +159,29 @@ export function registerOAuthRoutes(app: Express) {
             // Validate redirect to prevent open redirect vulnerability
             const requestedRedirect = decoded.redirect;
             
-            // Only allow relative paths (starting with /) or same-origin URLs
-            if (requestedRedirect.startsWith("/")) {
+            // Only allow relative paths (starting with / but not //) or same-origin URLs
+            // Protocol-relative URLs like //evil.com are rejected
+            if (requestedRedirect.startsWith("/") && !requestedRedirect.startsWith("//")) {
               // Relative path - safe to use
               redirect = requestedRedirect;
             } else {
               // Absolute URL - verify it's same-origin
               try {
                 const redirectUrl = new URL(requestedRedirect);
-                const currentOrigin = new URL(ENV.oauthCallbackUrl || "http://localhost:3000").origin;
                 
-                if (redirectUrl.origin === currentOrigin) {
-                  redirect = requestedRedirect;
-                } else {
-                  console.warn("[OAuth] Rejected external redirect:", requestedRedirect);
+                // Determine current origin from the callback URL
+                if (!ENV.oauthCallbackUrl) {
+                  console.error("[OAuth] Cannot validate redirect: oauthCallbackUrl not configured");
                   // Use default redirect for security
+                } else {
+                  const currentOrigin = new URL(ENV.oauthCallbackUrl).origin;
+                  
+                  if (redirectUrl.origin === currentOrigin) {
+                    redirect = requestedRedirect;
+                  } else {
+                    console.warn("[OAuth] Rejected external redirect:", requestedRedirect);
+                    // Use default redirect for security
+                  }
                 }
               } catch {
                 console.warn("[OAuth] Invalid redirect URL:", requestedRedirect);

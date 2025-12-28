@@ -89,6 +89,20 @@ describe("OAuth Routes", () => {
       expect(res.headers.location).not.toBe(maliciousRedirect);
     });
 
+    it("rejects protocol-relative URLs (//evil.com bypass)", async () => {
+      const maliciousRedirect = "//evil.example.com/phishing";
+      const state = Buffer.from(JSON.stringify({ redirect: maliciousRedirect })).toString("base64");
+
+      const res = await request(app)
+        .get("/api/auth/google/callback")
+        .query({ code: "mock_auth_code", state });
+
+      expect(res.status).toBe(302);
+      // Should redirect to default "/" instead of protocol-relative URL
+      expect(res.headers.location).toBe("/");
+      expect(res.headers.location).not.toContain("evil.example.com");
+    });
+
     it("rejects javascript: protocol URLs", async () => {
       const maliciousRedirect = "javascript:alert('XSS')";
       const state = Buffer.from(JSON.stringify({ redirect: maliciousRedirect })).toString("base64");
