@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx watch server/_core/index.ts",
-    "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --external:./vite.config.ts --bundle --format=esm --outdir=dist",
+    "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --external:./vite.config.ts --external:./vite --bundle --format=esm --outdir=dist",
     "build:prod": "bash ./scripts/build-prod.sh",
     "build:local": "bash ./scripts/build-local.sh",
     "start": "NODE_ENV=production node dist/index.js",
