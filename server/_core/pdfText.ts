@@ -3,10 +3,11 @@
  * 
  * pdf-parse is simpler and more reliable than pdfjs-dist for Node.js environments.
  */
-import { PDFParse } from 'pdf-parse';
+// Use require for pdf-parse as it's a CommonJS module that works better with dynamic imports
+const pdfParse = require('pdf-parse');
 
 export async function extractTextFromPDFBuffer(buffer: Buffer): Promise<string> {
-  const data = await PDFParse(buffer);
+  const data = await pdfParse(buffer);
   return data.text;
 }
 
