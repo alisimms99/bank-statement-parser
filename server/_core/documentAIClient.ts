@@ -144,6 +144,40 @@ export async function processWithDocumentAIStructured(
       textLength: result.document?.text?.length ?? 0,
     });
     
+    // Log ALL table_item entities with full structure
+    const tableItemEntities = result.document?.entities?.filter(e => 
+      (e.type || "").toLowerCase().includes("table_item")
+    ) ?? [];
+    
+    if (tableItemEntities.length > 0) {
+      console.log(`[Document AI] Found ${tableItemEntities.length} table_item entities - FULL STRUCTURE:`, JSON.stringify(
+        tableItemEntities.map(e => ({
+          type: e.type,
+          mentionText: e.mentionText,
+          confidence: e.confidence,
+          hasProperties: !!e.properties,
+          propertyCount: e.properties?.length ?? 0,
+          properties: e.properties?.map(p => ({
+            type: p.type,
+            mentionText: p.mentionText,
+            confidence: p.confidence,
+            normalizedValue: p.normalizedValue ? {
+              text: p.normalizedValue.text,
+              dateValue: (p.normalizedValue as any).dateValue,
+              moneyValue: (p.normalizedValue as any).moneyValue,
+            } : null,
+          })),
+          normalizedValue: e.normalizedValue ? {
+            text: e.normalizedValue.text,
+            dateValue: (e.normalizedValue as any).dateValue,
+            moneyValue: (e.normalizedValue as any).moneyValue,
+          } : null,
+        })),
+        null,
+        2
+      ));
+    }
+    
     // Log sample entities to see their structure
     if (result.document?.entities && result.document.entities.length > 0) {
       console.log('[Document AI] Sample entities (first 3):', JSON.stringify(

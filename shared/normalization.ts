@@ -232,12 +232,36 @@ export function normalizeDocumentAITransactions(
     ));
   }
 
+  // Debug: Log all entities before filtering
+  console.log(`[Normalization] Processing ${entities.length} entities, checking for transactions...`);
+  const transactionEntityTypes = entities
+    .filter(e => isTransactionEntity(e, documentType))
+    .map(e => e.type);
+  console.log(`[Normalization] Found ${transactionEntityTypes.length} transaction entities:`, transactionEntityTypes);
+
   for (const entity of entities) {
-    if (!isTransactionEntity(entity, documentType)) continue;
+    if (!isTransactionEntity(entity, documentType)) {
+      // Debug: Log why entities are being skipped
+      const entityType = (entity.type || "").toLowerCase();
+      if (entityType.includes("table") || entityType.includes("item")) {
+        console.log(`[Normalization] Skipping entity type "${entity.type}" - not recognized as transaction entity`);
+      }
+      continue;
+    }
 
     const entityType = (entity.type || "").toLowerCase();
     const isTableItem = entityType.includes("table_item") || entityType.includes("tableitem");
     const isLineItem = entityType.includes("line_item") || entityType.includes("lineitem");
+    
+    // Debug: Log what we're processing
+    if (isTableItem) {
+      console.log(`[Normalization] Processing table_item entity:`, {
+        type: entity.type,
+        hasProperties: !!entity.properties,
+        propertyCount: entity.properties?.length ?? 0,
+        hasMentionText: !!entity.mentionText,
+      });
+    }
 
     let date: string | null = null;
     let amountText: string = "";
