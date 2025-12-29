@@ -15,12 +15,12 @@ export async function extractTextFromPDFBuffer(buffer: Buffer): Promise<string> 
   const uint8Array = new Uint8Array(Buffer.from(buffer).buffer);
   
   // Configure pdfjs-dist for Node.js environment
-  // For text extraction, we don't need font rendering, so disable it
+  // For text extraction only, we can use an empty data URL for fonts
+  // This satisfies the API requirement without loading actual font data
   const loadingTask = getDocument({
     data: uint8Array,
     verbosity: 0, // Suppress warnings
-    // Disable font requirements for text-only extraction
-    standardFontDataUrl: null as any,
+    standardFontDataUrl: "data:application/octet-stream;base64,", // Empty data URL
   });
   const pdf = await (loadingTask?.promise ?? loadingTask);
 
