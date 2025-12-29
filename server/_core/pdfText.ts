@@ -11,17 +11,8 @@ export async function extractTextFromPDFBuffer(buffer: Buffer): Promise<string> 
   }
 
   // Convert Buffer to Uint8Array for pdfjs-dist compatibility
-  // Use Buffer's underlying ArrayBuffer to ensure proper conversion
-  let uint8Array: Uint8Array;
-  if (buffer instanceof Uint8Array) {
-    uint8Array = buffer;
-  } else if (Buffer.isBuffer(buffer)) {
-    // Node.js Buffer - convert using underlying ArrayBuffer
-    uint8Array = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-  } else {
-    // Fallback for other types
-    uint8Array = new Uint8Array(buffer);
-  }
+  // Buffer.from() ensures we have a Buffer, then .buffer gives us the underlying ArrayBuffer
+  const uint8Array = new Uint8Array(Buffer.from(buffer).buffer);
   const loadingTask = getDocument({ data: uint8Array });
   const pdf = await (loadingTask?.promise ?? loadingTask);
 
