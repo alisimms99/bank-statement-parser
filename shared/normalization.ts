@@ -280,13 +280,12 @@ export function normalizeDocumentAITransactions(
           date: normalizedDate,
           posted_date: normalizedDate,
           description: lineItemDescription.trim(),
-          payee: extractPayeeName(lineItemDescription),
+          payee: null, // Will be extracted later if needed
           debit,
           credit,
           balance: null,
           account_id: null,
           source_bank: bankType,
-          statement_period: undefined,
         });
       }
       continue; // Skip to next entity
