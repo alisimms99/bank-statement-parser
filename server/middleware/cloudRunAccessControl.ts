@@ -114,9 +114,11 @@ export async function requireCloudRunApiAccess(req: Request, res: Response, next
   // - tRPC endpoints (/api/trpc/*) use session cookies for authentication.
   // - Ingestion endpoints (/api/ingest/*) use session cookies via requireAuth middleware.
   // - Export endpoints (/api/export/*) use session cookies via requireAuth middleware.
+  // - Status endpoint (/api/status) uses session cookies for authentication.
   if (
     req.path === "/api/health" ||
     req.path === "/api/oauth/callback" ||
+    req.path === "/api/status" ||
     req.path.startsWith("/api/auth/") ||
     req.path.startsWith("/api/trpc/") ||
     req.path.startsWith("/api/ingest") ||
