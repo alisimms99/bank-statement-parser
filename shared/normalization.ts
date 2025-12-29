@@ -346,13 +346,41 @@ export function normalizeDocumentAITransactions(
           const propType = (prop.type || "").toLowerCase();
           console.log(`[Normalization] Checking property: type="${prop.type}", mentionText="${prop.mentionText?.substring(0, 50)}"`);
           
-          if (propType.includes("date") || propType.includes("transaction_date")) {
+          // Date extraction - look for _date suffix, extract mentionText (not the object)
+          if (propType.includes("_date") || propType.includes("transaction_date")) {
             tableItemDate = prop.mentionText || prop.normalizedValue?.text || null;
-            if (prop.normalizedValue?.dateValue) {
+            // Only use dateValue if mentionText is not available
+            if (!tableItemDate && prop.normalizedValue?.dateValue) {
               tableItemDate = prop.normalizedValue.dateValue;
             }
             console.log(`[Normalization] Found date property: "${tableItemDate}"`);
-          } else if (propType.includes("amount") || propType.includes("transaction_amount")) {
+          }
+          // Amount extraction - look for transaction_deposit or transaction_withdrawal (but not description)
+          else if (propType.includes("transaction_deposit") && !propType.includes("description")) {
+            // Deposit amount (positive)
+            if (prop.normalizedValue?.moneyValue?.amount != null) {
+              tableItemAmount = prop.normalizedValue.moneyValue.amount;
+              console.log(`[Normalization] Found deposit amount from moneyValue: ${tableItemAmount}`);
+            } else {
+              // Extract from mentionText like "$334.89"
+              const amountStr = prop.mentionText?.replace(/[$,]/g, '') || '0';
+              tableItemAmount = parseFloat(amountStr);
+              console.log(`[Normalization] Found deposit amount from mentionText: "${prop.mentionText}" -> ${tableItemAmount}`);
+            }
+          } else if (propType.includes("transaction_withdrawal") && !propType.includes("description") && !propType.includes("date")) {
+            // Withdrawal amount (negative)
+            if (prop.normalizedValue?.moneyValue?.amount != null) {
+              tableItemAmount = -Math.abs(prop.normalizedValue.moneyValue.amount);
+              console.log(`[Normalization] Found withdrawal amount from moneyValue: ${tableItemAmount}`);
+            } else {
+              // Extract from mentionText like "$334.89" and make negative
+              const amountStr = prop.mentionText?.replace(/[$,]/g, '') || '0';
+              tableItemAmount = -Math.abs(parseFloat(amountStr));
+              console.log(`[Normalization] Found withdrawal amount from mentionText: "${prop.mentionText}" -> ${tableItemAmount}`);
+            }
+          }
+          // Legacy support: also check for generic "amount" or "transaction_amount"
+          else if ((propType.includes("amount") || propType.includes("transaction_amount")) && !propType.includes("description")) {
             if (prop.normalizedValue?.moneyValue?.amount != null) {
               tableItemAmount = prop.normalizedValue.moneyValue.amount;
               console.log(`[Normalization] Found amount from moneyValue: ${tableItemAmount}`);
@@ -360,10 +388,14 @@ export function normalizeDocumentAITransactions(
               tableItemAmount = normalizeNumber(prop.mentionText);
               console.log(`[Normalization] Found amount from mentionText: "${prop.mentionText}" -> ${tableItemAmount}`);
             }
-          } else if (propType.includes("description") || propType.includes("merchant") || propType.includes("payee")) {
+          }
+          // Description extraction - look for _description suffix
+          else if (propType.includes("_description") || propType.includes("description") || propType.includes("merchant") || propType.includes("payee")) {
             tableItemDescription = prop.mentionText || prop.normalizedValue?.text || "";
             console.log(`[Normalization] Found description property: "${tableItemDescription.substring(0, 50)}"`);
-          } else if (propType.includes("balance")) {
+          }
+          // Balance extraction
+          else if (propType.includes("balance")) {
             if (prop.normalizedValue?.moneyValue?.amount != null) {
               tableItemBalance = prop.normalizedValue.moneyValue.amount;
             } else {
