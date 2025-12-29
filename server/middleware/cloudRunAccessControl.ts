@@ -112,11 +112,15 @@ export async function requireCloudRunApiAccess(req: Request, res: Response, next
   // - OAuth callbacks are browser redirects and cannot reliably include bearer tokens.
   // - Cookie-based auth endpoints (/api/auth/*) use session cookies, not bearer tokens.
   // - tRPC endpoints (/api/trpc/*) use session cookies for authentication.
+  // - Ingestion endpoints (/api/ingest/*) use session cookies via requireAuth middleware.
+  // - Export endpoints (/api/export/*) use session cookies via requireAuth middleware.
   if (
     req.path === "/api/health" ||
     req.path === "/api/oauth/callback" ||
     req.path.startsWith("/api/auth/") ||
-    req.path.startsWith("/api/trpc/")
+    req.path.startsWith("/api/trpc/") ||
+    req.path.startsWith("/api/ingest") ||
+    req.path.startsWith("/api/export")
   ) {
     return next();
   }
