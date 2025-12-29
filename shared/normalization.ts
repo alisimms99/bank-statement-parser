@@ -606,6 +606,12 @@ export function normalizeDocumentAITransactions(
     });
   }
 
+  // Final summary log
+  console.log(`[Normalization] ✅ Complete: Created ${transactions.length} transactions from ${entities.length} entities`);
+  if (transactions.length === 0 && tableItems.length > 0) {
+    console.error(`[Normalization] ⚠️ WARNING: Found ${tableItems.length} table_item entities but created 0 transactions!`);
+  }
+  
   return transactions;
 }
 
