@@ -36,11 +36,15 @@ function buildCspDirectives() {
 
   return [
     "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "img-src 'self' data: https://lh3.googleusercontent.com",
+    "connect-src 'self' https://us-documentai.googleapis.com https://*.googleapis.com",
     "object-src 'none'",
     "base-uri 'self'",
     "frame-ancestors 'none'",
     "form-action 'self'",
-    "img-src 'self' data:",
   ].join("; ");
 }
 
