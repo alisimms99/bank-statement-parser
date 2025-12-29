@@ -20,7 +20,7 @@ export async function extractTextFromPDFBuffer(buffer: Buffer): Promise<string> 
   const loadingTask = getDocument({
     data: uint8Array,
     verbosity: 0, // Suppress warnings
-    standardFontDataUrl: "data:application/octet-stream;base64,", // Empty data URL
+    standardFontDataUrl: "data:application/octet-stream;base64,/", // Empty data URL with trailing slash
   });
   const pdf = await (loadingTask?.promise ?? loadingTask);
 
