@@ -5,11 +5,9 @@
  */
 export async function extractTextFromPDFBuffer(buffer: Buffer): Promise<string> {
   // Dynamic import for CommonJS module in ESM context
-  // pdf-parse exports PDFParse as a named export, but the module itself is callable
-  const pdfParseModule = await import('pdf-parse');
-  // Try default export first, then PDFParse class, then the module itself
-  const pdfParse = (pdfParseModule as any).default || pdfParseModule.PDFParse || pdfParseModule;
-  const data = await pdfParse(buffer);
-  return data.text;
+  // pdf-parse exports PDFParse as a named export (class)
+  const { PDFParse } = await import('pdf-parse');
+  const parser = new PDFParse({ data: buffer });
+  const result = await parser.getText();
+  return result.text;
 }
-
