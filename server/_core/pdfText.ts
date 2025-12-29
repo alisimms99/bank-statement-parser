@@ -1,13 +1,14 @@
 /**
- * Server-side PDF text extraction using pdf-parse.
+ * Server-side PDF text extraction.
  * 
- * pdf-parse is simpler and more reliable than pdfjs-dist for Node.js environments.
+ * Note: Server-side PDF parsing is disabled. Document AI is the primary extraction method.
+ * If Document AI fails or returns 0 transactions, the client-side legacy parser (pdfjs-dist)
+ * will handle the fallback parsing in the browser.
  */
 export async function extractTextFromPDFBuffer(buffer: Buffer): Promise<string> {
-  // Dynamic import for CommonJS module in ESM context
-  // pdf-parse exports PDFParse as a named export (class)
-  const { PDFParse } = await import('pdf-parse');
-  const parser = new PDFParse({ data: buffer });
-  const result = await parser.getText();
-  return result.text;
+  // Server-side PDF text extraction is handled by Document AI
+  // Legacy parsing happens on the client side with pdfjs-dist
+  // Return empty string to trigger client-side fallback
+  console.log('[Legacy Parser] Server-side PDF parsing disabled, using client fallback');
+  return '';
 }
