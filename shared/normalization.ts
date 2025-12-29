@@ -206,17 +206,30 @@ export function normalizeDocumentAITransactions(
   
   if (tableItems.length > 0) {
     console.log(`[Normalization] Found ${tableItems.length} table_item entities (bank: ${bankType}, year: ${statementYear})`);
-    console.log('[Normalization] Sample table_items:', tableItems.slice(0, 3).map(item => ({
-      type: item.type,
-      mentionText: item.mentionText?.substring(0, 150),
-      hasProperties: !!item.properties,
-      propertyTypes: item.properties?.map(p => p.type).filter(Boolean),
-      normalizedValue: item.normalizedValue ? {
-        text: item.normalizedValue.text,
-        hasMoneyValue: !!item.normalizedValue.moneyValue,
-        hasDateValue: !!item.normalizedValue.dateValue,
-      } : null,
-    })));
+    // Log full structure of table_item entities to debug
+    console.log('[Normalization] Table items structure:', JSON.stringify(
+      tableItems.slice(0, 3).map(item => ({
+        type: item.type,
+        mentionText: item.mentionText?.substring(0, 150),
+        hasProperties: !!item.properties,
+        propertyCount: item.properties?.length ?? 0,
+        propertyTypes: item.properties?.map(p => p.type).filter(Boolean),
+        properties: item.properties?.map(p => ({
+          type: p.type,
+          mentionText: p.mentionText?.substring(0, 100),
+          hasNormalizedValue: !!p.normalizedValue,
+          moneyValue: p.normalizedValue?.moneyValue,
+          dateValue: p.normalizedValue?.dateValue,
+        })),
+        normalizedValue: item.normalizedValue ? {
+          text: item.normalizedValue.text,
+          hasMoneyValue: !!item.normalizedValue.moneyValue,
+          hasDateValue: !!item.normalizedValue.dateValue,
+        } : null,
+      })),
+      null,
+      2
+    ));
   }
 
   for (const entity of entities) {
@@ -296,7 +309,77 @@ export function normalizeDocumentAITransactions(
     }
 
     if (isTableItem) {
-      // Bank-specific parsing for table_item entities
+      // Check if table_item has properties (Bank Statement Parser format: table_item/date, table_item/amount, etc.)
+      if (entity.properties && entity.properties.length > 0) {
+        // Extract from properties (Bank Statement Parser format)
+        let tableItemDate: string | null = null;
+        let tableItemAmount: number | null = null;
+        let tableItemDescription: string = "";
+        let tableItemBalance: number | null = null;
+        
+        for (const prop of entity.properties) {
+          const propType = (prop.type || "").toLowerCase();
+          if (propType.includes("date") || propType.includes("transaction_date")) {
+            tableItemDate = prop.mentionText || prop.normalizedValue?.text || null;
+            if (prop.normalizedValue?.dateValue) {
+              tableItemDate = prop.normalizedValue.dateValue;
+            }
+          } else if (propType.includes("amount") || propType.includes("transaction_amount")) {
+            if (prop.normalizedValue?.moneyValue?.amount != null) {
+              tableItemAmount = prop.normalizedValue.moneyValue.amount;
+            } else {
+              tableItemAmount = normalizeNumber(prop.mentionText);
+            }
+          } else if (propType.includes("description") || propType.includes("merchant") || propType.includes("payee")) {
+            tableItemDescription = prop.mentionText || prop.normalizedValue?.text || "";
+          } else if (propType.includes("balance")) {
+            if (prop.normalizedValue?.moneyValue?.amount != null) {
+              tableItemBalance = prop.normalizedValue.moneyValue.amount;
+            } else {
+              tableItemBalance = normalizeNumber(prop.mentionText);
+            }
+          }
+        }
+        
+        // Fallback to entity mentionText if description is missing
+        if (!tableItemDescription && entity.mentionText) {
+          tableItemDescription = entity.mentionText;
+        }
+        
+        // Only create transaction if we have required fields
+        if (tableItemAmount != null && tableItemDescription) {
+          const normalizedDate = normalizeDateString(tableItemDate, statementYear);
+          const direction = inferDirectionFromEntity(entity);
+          
+          // Determine debit/credit based on amount sign and direction
+          if (tableItemAmount < 0 || direction === "debit") {
+            debit = Math.abs(tableItemAmount);
+            credit = 0;
+          } else {
+            debit = 0;
+            credit = Math.abs(tableItemAmount);
+          }
+          
+          transactions.push({
+            date: normalizedDate,
+            posted_date: normalizedDate,
+            description: tableItemDescription.trim(),
+            payee: null,
+            debit,
+            credit,
+            balance: tableItemBalance,
+            account_id: null,
+            source_bank: bankType,
+            statement_period: {
+              start: null,
+              end: null,
+            },
+          });
+        }
+        continue; // Skip to bank-specific parsing
+      }
+      
+      // Bank-specific parsing for table_item entities (legacy format with mentionText)
       let parsed: { date: string; amount: string; description: string } | null = null;
       
       if (bankType === 'capital_one') {

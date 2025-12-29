@@ -17,8 +17,8 @@
     <script type="module" src="/src/main.tsx"></script>
     <script
       defer
-      src="%VITE_ANALYTICS_ENDPOINT%/umami"
-      data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
+      src="${import.meta.env.VITE_ANALYTICS_ENDPOINT || ''}/umami"
+      data-website-id="${import.meta.env.VITE_ANALYTICS_WEBSITE_ID || ''}"></script>
   </body>
 
 </html>
