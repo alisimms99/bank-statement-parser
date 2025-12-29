@@ -286,6 +286,10 @@ export function normalizeDocumentAITransactions(
           balance: null,
           account_id: null,
           source_bank: bankType,
+          statement_period: {
+            start: null,
+            end: null,
+          },
         });
       }
       continue; // Skip to next entity
