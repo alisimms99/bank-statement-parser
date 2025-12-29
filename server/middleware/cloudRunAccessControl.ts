@@ -110,7 +110,16 @@ export async function requireCloudRunApiAccess(req: Request, res: Response, next
   // Exempt endpoints that cannot include Authorization headers.
   // - Cloud Run health probes do not include auth headers.
   // - OAuth callbacks are browser redirects and cannot reliably include bearer tokens.
-  if (req.path === "/api/health" || req.path === "/api/oauth/callback") return next();
+  // - Cookie-based auth endpoints (/api/auth/*) use session cookies, not bearer tokens.
+  // - tRPC endpoints (/api/trpc/*) use session cookies for authentication.
+  if (
+    req.path === "/api/health" ||
+    req.path === "/api/oauth/callback" ||
+    req.path.startsWith("/api/auth/") ||
+    req.path.startsWith("/api/trpc/")
+  ) {
+    return next();
+  }
 
   const token = parseBearerToken(req.headers.authorization);
   if (!token) {
