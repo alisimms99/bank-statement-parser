@@ -70,7 +70,15 @@ export function registerOAuthRoutes(app: Express) {
 
     try {
       // Exchange code for tokens
-      const { tokens } = await client.getToken(code);
+      const { tokens } = await client.getToken(code).catch(error => {
+        console.error("[OAuth] Token exchange failed:", {
+          error: error instanceof Error ? error.message : String(error),
+          code: error instanceof Error && 'code' in error ? error.code : undefined,
+          redirectUri: ENV.oauthCallbackUrl,
+          hasCode: !!code,
+        });
+        throw error;
+      });
       client.setCredentials(tokens);
 
       if (!tokens.id_token) {
@@ -197,10 +205,23 @@ export function registerOAuthRoutes(app: Express) {
       console.log("[OAuth] Callback successful, redirecting to:", redirect);
       res.redirect(302, redirect);
     } catch (error) {
-      console.error("[OAuth] Callback failed:", error);
+      console.error("[OAuth] Callback failed:", {
+        error: error instanceof Error ? error.message : String(error),
+        code: error instanceof Error && 'code' in error ? error.code : undefined,
+        redirectUri: ENV.oauthCallbackUrl,
+        clientId: ENV.googleClientId ? `${ENV.googleClientId.substring(0, 10)}...` : 'missing',
+      });
+      
+      // Provide more helpful error messages
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      let userMessage = "OAuth callback failed";
+      if (errorMessage.includes("invalid_grant")) {
+        userMessage = "OAuth callback failed: invalid_grant. This usually means the redirect URI doesn't match Google OAuth settings, or the authorization code expired/was already used.";
+      }
+      
       res.status(500).json({
-        error: "OAuth callback failed",
-        details: error instanceof Error ? error.message : String(error),
+        error: userMessage,
+        details: errorMessage,
       });
     }
   });
