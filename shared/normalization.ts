@@ -335,6 +335,7 @@ export function normalizeDocumentAITransactions(
     if (isTableItem) {
       // Check if table_item has properties (Bank Statement Parser format: table_item/date, table_item/amount, etc.)
       if (entity.properties && entity.properties.length > 0) {
+        console.log(`[Normalization] Processing table_item with ${entity.properties.length} properties`);
         // Extract from properties (Bank Statement Parser format)
         let tableItemDate: string | null = null;
         let tableItemAmount: number | null = null;
@@ -343,19 +344,25 @@ export function normalizeDocumentAITransactions(
         
         for (const prop of entity.properties) {
           const propType = (prop.type || "").toLowerCase();
+          console.log(`[Normalization] Checking property: type="${prop.type}", mentionText="${prop.mentionText?.substring(0, 50)}"`);
+          
           if (propType.includes("date") || propType.includes("transaction_date")) {
             tableItemDate = prop.mentionText || prop.normalizedValue?.text || null;
             if (prop.normalizedValue?.dateValue) {
               tableItemDate = prop.normalizedValue.dateValue;
             }
+            console.log(`[Normalization] Found date property: "${tableItemDate}"`);
           } else if (propType.includes("amount") || propType.includes("transaction_amount")) {
             if (prop.normalizedValue?.moneyValue?.amount != null) {
               tableItemAmount = prop.normalizedValue.moneyValue.amount;
+              console.log(`[Normalization] Found amount from moneyValue: ${tableItemAmount}`);
             } else {
               tableItemAmount = normalizeNumber(prop.mentionText);
+              console.log(`[Normalization] Found amount from mentionText: "${prop.mentionText}" -> ${tableItemAmount}`);
             }
           } else if (propType.includes("description") || propType.includes("merchant") || propType.includes("payee")) {
             tableItemDescription = prop.mentionText || prop.normalizedValue?.text || "";
+            console.log(`[Normalization] Found description property: "${tableItemDescription.substring(0, 50)}"`);
           } else if (propType.includes("balance")) {
             if (prop.normalizedValue?.moneyValue?.amount != null) {
               tableItemBalance = prop.normalizedValue.moneyValue.amount;
@@ -368,7 +375,10 @@ export function normalizeDocumentAITransactions(
         // Fallback to entity mentionText if description is missing
         if (!tableItemDescription && entity.mentionText) {
           tableItemDescription = entity.mentionText;
+          console.log(`[Normalization] Using entity mentionText as description: "${tableItemDescription.substring(0, 50)}"`);
         }
+        
+        console.log(`[Normalization] Extracted values: date="${tableItemDate}", amount=${tableItemAmount}, description="${tableItemDescription.substring(0, 50)}"`);
         
         // Only create transaction if we have required fields
         if (tableItemAmount != null && tableItemDescription) {
@@ -384,7 +394,7 @@ export function normalizeDocumentAITransactions(
             credit = Math.abs(tableItemAmount);
           }
           
-          transactions.push({
+          const transaction = {
             date: normalizedDate,
             posted_date: normalizedDate,
             description: tableItemDescription.trim(),
@@ -398,7 +408,12 @@ export function normalizeDocumentAITransactions(
               start: null,
               end: null,
             },
-          });
+          };
+          
+          transactions.push(transaction);
+          console.log(`[Normalization] ✅ Created transaction: ${transaction.description.substring(0, 30)} - ${transaction.debit > 0 ? `Debit: $${transaction.debit}` : `Credit: $${transaction.credit}`}`);
+        } else {
+          console.log(`[Normalization] ❌ Skipping transaction - missing required fields: amount=${tableItemAmount}, description="${tableItemDescription.substring(0, 30)}"`);
         }
         continue; // Skip to bank-specific parsing
       }
