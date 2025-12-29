@@ -135,6 +135,36 @@ export async function processWithDocumentAIStructured(
       },
     });
 
+    // Debug: Log raw Document AI response structure
+    console.log('[Document AI] Raw response structure:', {
+      hasDocument: !!result.document,
+      entityCount: result.document?.entities?.length ?? 0,
+      entityTypes: result.document?.entities?.map(e => e.type).filter(Boolean) ?? [],
+      hasText: !!result.document?.text,
+      textLength: result.document?.text?.length ?? 0,
+    });
+    
+    // Log sample entities to see their structure
+    if (result.document?.entities && result.document.entities.length > 0) {
+      console.log('[Document AI] Sample entities (first 3):', JSON.stringify(
+        result.document.entities.slice(0, 3).map(e => ({
+          type: e.type,
+          mentionText: e.mentionText?.substring(0, 100),
+          hasProperties: !!e.properties,
+          propertyCount: e.properties?.length ?? 0,
+          propertyTypes: e.properties?.map(p => p.type).filter(Boolean),
+          hasNormalizedValue: !!e.normalizedValue,
+          normalizedValueType: e.normalizedValue ? {
+            hasText: !!e.normalizedValue.text,
+            hasDateValue: !!(e.normalizedValue as any).dateValue,
+            hasMoneyValue: !!(e.normalizedValue as any).moneyValue,
+          } : null,
+        })),
+        null,
+        2
+      ));
+    }
+
     const normalizedDoc: DocumentAiNormalizedDocument = {
       entities: result.document?.entities?.map(entity => ({
         type: entity.type ?? undefined,

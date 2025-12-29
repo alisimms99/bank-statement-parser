@@ -224,12 +224,73 @@ export function normalizeDocumentAITransactions(
 
     const entityType = (entity.type || "").toLowerCase();
     const isTableItem = entityType.includes("table_item") || entityType.includes("tableitem");
+    const isLineItem = entityType.includes("line_item") || entityType.includes("lineitem");
 
     let date: string | null = null;
     let amountText: string = "";
     let description: string = "";
     let debit = 0;
     let credit = 0;
+
+    // Handle line_item entities (Bank Statement Parser format with properties)
+    if (isLineItem && entity.properties && entity.properties.length > 0) {
+      // Extract date, amount, and description from line_item properties
+      let lineItemDate: string | null = null;
+      let lineItemAmount: number | null = null;
+      let lineItemDescription: string = "";
+      
+      for (const prop of entity.properties) {
+        const propType = (prop.type || "").toLowerCase();
+        if (propType.includes("date") || propType.includes("transaction_date")) {
+          lineItemDate = prop.mentionText || prop.normalizedValue?.text || null;
+          if (prop.normalizedValue?.dateValue) {
+            lineItemDate = prop.normalizedValue.dateValue;
+          }
+        } else if (propType.includes("amount") || propType.includes("transaction_amount")) {
+          if (prop.normalizedValue?.moneyValue?.amount != null) {
+            lineItemAmount = prop.normalizedValue.moneyValue.amount;
+          } else {
+            lineItemAmount = normalizeNumber(prop.mentionText);
+          }
+        } else if (propType.includes("description") || propType.includes("merchant") || propType.includes("payee")) {
+          lineItemDescription = prop.mentionText || prop.normalizedValue?.text || "";
+        }
+      }
+      
+      // If we have the main entity mentionText, use it as description fallback
+      if (!lineItemDescription && entity.mentionText) {
+        lineItemDescription = entity.mentionText;
+      }
+      
+      // Only create transaction if we have required fields
+      if (lineItemAmount != null && lineItemDescription) {
+        const normalizedDate = normalizeDateString(lineItemDate, statementYear);
+        const direction = inferDirectionFromEntity(entity);
+        
+        // Determine debit/credit based on amount sign and direction
+        if (lineItemAmount < 0 || direction === "debit") {
+          debit = Math.abs(lineItemAmount);
+          credit = 0;
+        } else {
+          debit = 0;
+          credit = Math.abs(lineItemAmount);
+        }
+        
+        transactions.push({
+          date: normalizedDate,
+          posted_date: normalizedDate,
+          description: lineItemDescription.trim(),
+          payee: extractPayeeName(lineItemDescription),
+          debit,
+          credit,
+          balance: null,
+          account_id: null,
+          source_bank: bankType,
+          statement_period: undefined,
+        });
+      }
+      continue; // Skip to next entity
+    }
 
     if (isTableItem) {
       // Bank-specific parsing for table_item entities
@@ -1419,6 +1480,8 @@ function isTransactionEntity(entity: DocumentAiEntity, docType: CanonicalDocumen
   if (type.includes("transaction")) return true;
   // table_item entities contain transaction data in bank statements
   if (type.includes("table_item") || type.includes("tableitem")) return true;
+  // Bank Statement Parser may also return line_item entities for transactions
+  if (docType === "bank_statement" && (type.includes("line_item") || type.includes("lineitem"))) return true;
   if (docType === "invoice" && (type.includes("line_item") || type.includes("lineitem"))) return true;
   if (docType === "bank_statement" && type.includes("bank")) return true;
   if (docType === "receipt" && type.includes("purchase")) return true;
