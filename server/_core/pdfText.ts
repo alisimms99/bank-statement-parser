@@ -14,13 +14,13 @@ export async function extractTextFromPDFBuffer(buffer: Buffer): Promise<string> 
   // Buffer.from() ensures we have a Buffer, then .buffer gives us the underlying ArrayBuffer
   const uint8Array = new Uint8Array(Buffer.from(buffer).buffer);
   
-  // Configure pdfjs-dist for Node.js environment (disable font rendering for text extraction)
+  // Configure pdfjs-dist for Node.js environment
+  // For text extraction, we don't need font rendering, so disable it
   const loadingTask = getDocument({
     data: uint8Array,
-    useSystemFonts: false,
-    useFontFace: false,
-    // Disable font loading since we only need text extraction
-    standardFontDataUrl: undefined,
+    verbosity: 0, // Suppress warnings
+    // Disable font requirements for text-only extraction
+    standardFontDataUrl: null as any,
   });
   const pdf = await (loadingTask?.promise ?? loadingTask);
 
