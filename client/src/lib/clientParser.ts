@@ -52,7 +52,7 @@ export async function parseBankStatementClient(
       console.log(`[Client Parser] ✅ Bank detected: ${bankType} - using custom parser (NOT Document AI)`);
       try {
         console.log(`[Client Parser] Using custom ${bankType} parser`);
-        const legacyTransactions = parseStatementText(text);
+        const legacyTransactions = parseBankText(text, bankType, file.name);
         
         // Extract year from filename if available
         const yearMatch = file.name.match(/(20\d{2})/);
