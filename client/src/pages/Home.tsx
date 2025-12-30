@@ -15,6 +15,7 @@ import {
   Transaction
 } from "@/lib/pdfParser";
 import { ingestWithDocumentAI, type IngestionSource } from "@/lib/ingestionClient";
+import { parseBankStatementClient, type ParserSource } from "@/lib/clientParser";
 import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
 import type { DocumentAiTelemetry, IngestionFailure } from "@shared/types";
@@ -126,47 +127,50 @@ export default function Home() {
         setStatus(file.name, "upload", "File received", "documentai");
 
         try {
-          const result = await ingestWithDocumentAI(file, "bank_statement");
-          latestSource = result.source;
-          setDocAiTelemetry(result.docAiTelemetry ?? null);
-          setFallbackReason(result.fallback);
-
-          if (result.source === "error") {
-            const message = result.error ?? "Invalid upload";
+          // NEW FLOW: Parse client-side first using custom parsers
+          setStatus(file.name, "extraction", "Extracting text and detecting bank...", "legacy");
+          
+          const parseResult = await parseBankStatementClient(file, "bank_statement");
+          
+          // Map parser source to ingestion source for compatibility
+          if (parseResult.source === "custom") {
+            latestSource = "legacy"; // Custom parser uses legacy format
+          } else if (parseResult.source === "documentai") {
+            latestSource = "documentai";
+          } else {
+            latestSource = "error";
+          }
+          
+          setDocAiTelemetry(parseResult.docAiTelemetry ?? null);
+          
+          if (parseResult.source === "error") {
+            const message = parseResult.error ?? "Invalid upload";
             toast.error(message);
             setStatus(file.name, "error", message, "error");
-            appendIngestFailure(
-              result.failure ?? {
-                phase: "unknown",
-                message,
-                ts: Date.now(),
-                hint: `file=${file.name}`,
-              }
-            );
+            appendIngestFailure({
+              phase: "unknown",
+              message,
+              ts: Date.now(),
+              hint: `file=${file.name}, bank=${parseResult.bankType}`,
+            });
             continue;
           }
 
-          // Document AI failed on server and we fell back to legacy
-          if (result.source === "legacy" && result.fallback === "failed") {
-            appendIngestFailure(
-              result.docAiFailure ?? {
-                phase: "docai",
-                message: "Document AI failed; using legacy fallback",
-                ts: Date.now(),
-                hint: `file=${file.name}`,
-              }
-            );
-          }
-
-          if (result.document && result.document.transactions.length > 0) {
-            const canonical = result.document.transactions;
-            const isDocumentAi = result.source === "documentai";
-            const statusSource: FileStatus["source"] = isDocumentAi ? "documentai" : "legacy";
+          if (parseResult.document && parseResult.document.transactions.length > 0) {
+            const canonical = parseResult.document.transactions;
+            const isCustomParser = parseResult.source === "custom";
+            const statusSource: FileStatus["source"] = isCustomParser ? "legacy" : "documentai";
+            
+            const parserName = isCustomParser 
+              ? `${parseResult.bankType} parser`
+              : "Document AI";
 
             setStatus(
               file.name,
               "extraction",
-              isDocumentAi ? "Document AI extraction complete" : "Legacy extraction complete",
+              isCustomParser 
+                ? `Custom ${parseResult.bankType} parser extraction complete`
+                : "Document AI extraction complete",
               statusSource
             );
 
@@ -174,48 +178,56 @@ export default function Home() {
             allTransactions.push(...canonical.map(canonicalToDisplayTransaction));
             fileNames.push(file.name);
 
-            // Store export ID if available (from backend)
-            if (result.exportId) {
-              setExportId(result.exportId);
+            // Store export ID if available (from Document AI fallback)
+            if (parseResult.exportId) {
+              setExportId(parseResult.exportId);
             }
 
             setStatus(
               file.name,
               "normalization",
-              isDocumentAi ? "Normalized to canonical schema" : "Legacy normalization complete",
+              isCustomParser ? "Normalized to canonical schema" : "Normalized to canonical schema",
               statusSource
             );
             setStatus(file.name, "export", "Ready for export", statusSource);
 
             toast.success(
-              isDocumentAi
-                ? `Document AI extracted ${canonical.length} transactions from ${file.name}`
-                : `Extracted ${canonical.length} transactions from ${file.name}`
+              `${parserName} extracted ${canonical.length} transactions from ${file.name}`
             );
             continue;
           }
 
-          setStatus(file.name, "extraction", "Document AI unavailable, using legacy parser", "legacy");
-          
-          // Capture exportId from backend response even in legacy fallback
-          if (result.exportId) {
-            setExportId(result.exportId);
+          // No transactions found - try Document AI fallback if not already tried
+          if (parseResult.source !== "documentai") {
+            setStatus(file.name, "extraction", "Custom parser found 0 transactions, trying Document AI...", "documentai");
+            
+            const docAIResult = await ingestWithDocumentAI(file, "bank_statement");
+            latestSource = docAIResult.source;
+            setDocAiTelemetry(docAIResult.docAiTelemetry ?? null);
+            
+            if (docAIResult.document && docAIResult.document.transactions.length > 0) {
+              const canonical = docAIResult.document.transactions;
+              allCanonical.push(...canonical);
+              allTransactions.push(...canonical.map(canonicalToDisplayTransaction));
+              fileNames.push(file.name);
+              
+              if (docAIResult.exportId) {
+                setExportId(docAIResult.exportId);
+              }
+              
+              setStatus(file.name, "extraction", "Document AI extraction complete", "documentai");
+              setStatus(file.name, "normalization", "Normalized to canonical schema", "documentai");
+              setStatus(file.name, "export", "Ready for export", "documentai");
+              
+              toast.success(`Document AI extracted ${canonical.length} transactions from ${file.name}`);
+              continue;
+            }
           }
           
-          const text = await extractTextFromPDF(file);
-          const parsedTransactions = parseStatementText(text);
-          // Extract year from filename (e.g., "STATEMENTS,September2024-8704.pdf" -> "2024")
-          const yearMatch = file.name.match(/(20\d{2})/);
-          const defaultYear = yearMatch ? parseInt(yearMatch[1], 10) : undefined;
-          const canonical = legacyTransactionsToCanonical(parsedTransactions, defaultYear);
-
-          allTransactions.push(...canonical.map(canonicalToDisplayTransaction));
-          allCanonical.push(...canonical);
-          fileNames.push(file.name);
-
-          setStatus(file.name, "normalization", "Legacy normalization complete", "legacy");
-          setStatus(file.name, "export", "Ready for export", "legacy");
-          toast.success(`Extracted ${parsedTransactions.length} transactions from ${file.name}`);
+          // Still no transactions
+          toast.warning(`No transactions found in ${file.name}`);
+          setStatus(file.name, "extraction", "No transactions found", "error");
+          continue;
         } catch (error) {
           console.error(`Error processing ${file.name}:`, error);
           toast.error(`Failed to process ${file.name}`);

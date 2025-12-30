@@ -157,6 +157,71 @@ function extractYear(fileName: string): string {
 }
 
 export function registerIngestionRoutes(app: Express) {
+  // Endpoint for client-parsed transactions (custom parser path)
+  app.post("/api/ingest/parsed", requireAuth, async (req, res) => {
+    try {
+      const { fileName, transactions } = req.body;
+      
+      if (!fileName || !Array.isArray(transactions)) {
+        return res.status(400).json({
+          error: "Invalid request: fileName and transactions array required",
+          source: "error",
+        });
+      }
+      
+      // Validate transactions are in canonical format
+      const canonicalTransactions: CanonicalTransaction[] = transactions.map((tx: any) => ({
+        date: tx.date ?? null,
+        posted_date: tx.posted_date ?? tx.date ?? null,
+        description: tx.description ?? "",
+        payee: tx.payee ?? null,
+        debit: tx.debit ?? 0,
+        credit: tx.credit ?? 0,
+        balance: tx.balance ?? null,
+        account_id: tx.account_id ?? null,
+        source_bank: tx.source_bank ?? null,
+        statement_period: tx.statement_period ?? {
+          start: null,
+          end: null,
+        },
+        metadata: tx.metadata,
+      }));
+      
+      // Store transactions and get export ID
+      const exportId = storeTransactions(canonicalTransactions);
+      
+      logEvent("ingest_complete", {
+        source: "custom",
+        fileName,
+        transactionCount: canonicalTransactions.length,
+        exportId,
+      });
+      
+      logIngestionSuccess(exportId, fileName, canonicalTransactions.length, "legacy", Date.now());
+      
+      res.json({
+        source: "custom",
+        document: {
+          documentType: "bank_statement" as const,
+          transactions: canonicalTransactions,
+          rawText: undefined,
+        },
+        exportId,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      logEvent("ingest_failure", {
+        phase: "parsed",
+        error: errorMessage,
+      }, "error");
+      
+      res.status(500).json({
+        error: errorMessage,
+        source: "error",
+      });
+    }
+  });
+
   // Status endpoint for deployment information
   app.get("/api/status", (req, res) => {
     const config = getDocumentAiConfig();
