@@ -747,7 +747,7 @@ function getYearFromChaseFilename(filename: string | undefined): { year: number;
  * - Purchases/Fees/Interest: positive (adds to balance) - "1,233.96"
  * - Payments: negative (reduces balance) - "-500.00"
  */
-function parseChaseTableItem(
+export function parseChaseTableItem(
   mentionText: string | undefined,
   statementYear?: number,
   fileName?: string
@@ -808,7 +808,7 @@ function parseChaseTableItem(
 /**
  * Filter out Citi payment coupon text, section headers, and other garbage entries
  */
-function isCitiGarbage(text: string): boolean {
+export function isCitiGarbage(text: string): boolean {
   const garbagePatterns = [
     /^Standard Purchases$/i,
     /^Balance Transfer-Offer/i,
@@ -848,7 +848,7 @@ function isCitiGarbage(text: string): boolean {
  * Format: "Billing Period: 12/03/24-01/01/25"
  * Returns: { startMonth, startYear, endMonth, endYear }
  */
-function getCitiBillingPeriod(text: string | undefined): { startMonth: number; startYear: number; endMonth: number; endYear: number } | null {
+export function getCitiBillingPeriod(text: string | undefined): { startMonth: number; startYear: number; endMonth: number; endYear: number } | null {
   if (!text) return null;
   // Format: "Billing Period: 12/03/24-01/01/25"
   const match = text.match(/Billing Period:\s*(\d{2})\/(\d{2})\/(\d{2})-(\d{2})\/(\d{2})\/(\d{2})/i);
@@ -868,7 +868,7 @@ function getCitiBillingPeriod(text: string | undefined): { startMonth: number; s
  * Infer transaction year from billing period
  * Handles year boundary correctly (e.g., Dec 2024 - Jan 2025)
  */
-function getCitiTransactionYear(
+export function getCitiTransactionYear(
   transMonth: number,
   billingPeriod: { startMonth: number; startYear: number; endMonth: number; endYear: number } | null
 ): number | undefined {
@@ -903,7 +903,7 @@ function getCitiTransactionYear(
  * - Purchases/Fees/Interest: positive (adds to balance) - "$7,300.00"
  * - Payments/Credits: negative (reduces balance) - "-$100.00"
  */
-function parseCitiTableItem(
+export function parseCitiTableItem(
   mentionText: string | undefined,
   statementYear?: number,
   fileName?: string,
@@ -970,7 +970,7 @@ function parseCitiTableItem(
 /**
  * Filter out Lowe's/Synchrony account info, invoice details, and other garbage entries
  */
-function isLowesGarbage(text: string): boolean {
+export function isLowesGarbage(text: string): boolean {
   const garbagePatterns = [
     /P\.?O\.?\s*Box\s*\d+/i,
     /DALLAS.*TX/i,
@@ -1010,7 +1010,7 @@ function isLowesGarbage(text: string): boolean {
  * Extract year from Lowe's/Synchrony statement closing date
  * Format: "Statement Closing Date: 10/02/2025"
  */
-function getYearFromLowesStatement(text: string | undefined): number | null {
+export function getYearFromLowesStatement(text: string | undefined): number | null {
   if (!text) return null;
   // Statement Closing Date 10/02/2025
   const match = text.match(/Statement Closing Date\s*(\d{2})\/(\d{2})\/(\d{4})/i);
@@ -1030,7 +1030,7 @@ function getYearFromLowesStatement(text: string | undefined): number | null {
  * - Purchases: positive with $ sign - "$273.33"
  * - Payments/Credits: negative with parentheses - "($71.45)"
  */
-function parseLowesTableItem(
+export function parseLowesTableItem(
   mentionText: string | undefined,
   statementYear?: number,
   documentText?: string
@@ -1102,7 +1102,7 @@ function parseLowesTableItem(
 /**
  * Filter out Amazon/Synchrony section headers, order IDs, and other garbage entries
  */
-function isAmazonSynchronyGarbage(text: string): boolean {
+export function isAmazonSynchronyGarbage(text: string): boolean {
   const garbagePatterns = [
     /P\.?O\.?\s*Box\s*\d+/i,
     /PHILADELPHIA.*PA.*19176/i,
@@ -1139,7 +1139,7 @@ function isAmazonSynchronyGarbage(text: string): boolean {
  * Format: "30 Day Billing Cycle from 09/03/2025 to 10/02/2025"
  *         or "New Balance as of 10/02/2025"
  */
-function getYearFromAmazonSynchrony(text: string | undefined): number | null {
+export function getYearFromAmazonSynchrony(text: string | undefined): number | null {
   if (!text) return null;
   // Match any date in MM/DD/YYYY format
   const match = text.match(/(\d{2})\/(\d{2})\/(\d{4})/);
@@ -1160,7 +1160,7 @@ function getYearFromAmazonSynchrony(text: string | undefined): number | null {
  * - Payments/Credits: negative with explicit minus - "-$290.88"
  * - Purchases/Interest: positive - "$37.57"
  */
-function parseAmazonSynchronyTableItem(
+export function parseAmazonSynchronyTableItem(
   mentionText: string | undefined,
   statementYear?: number,
   documentText?: string
@@ -1233,7 +1233,7 @@ function parseAmazonSynchronyTableItem(
 /**
  * Filter out Capital One payment coupon text and other garbage entries
  */
-function isCapitalOneGarbage(text: string): boolean {
+export function isCapitalOneGarbage(text: string): boolean {
   const garbagePatterns = [
     /P\.?O\.?\s*Box\s*\d+/i,
     /Charlotte NC 28272/i,
@@ -1254,7 +1254,7 @@ function isCapitalOneGarbage(text: string): boolean {
  * Extract year and month from Capital One filename
  * Format: Statement_MMYYYY_XXXX.pdf → Statement_102025_9163.pdf = October 2025
  */
-function getYearFromCapitalOneFilename(filename: string | undefined): { year: number; month: number } | null {
+export function getYearFromCapitalOneFilename(filename: string | undefined): { year: number; month: number } | null {
   if (!filename) return null;
   // Statement_MMYYYY_XXXX.pdf → Statement_102025_9163.pdf
   const match = filename.match(/Statement_(\d{2})(\d{4})_\d+\.pdf/i);
@@ -1276,7 +1276,7 @@ function getYearFromCapitalOneFilename(filename: string | undefined): { year: nu
  * - Payments/Credits: negative (reduces balance) - "- $1,000.00"
  * - Purchases/Fees/Interest: positive (adds to balance) - "$176.56"
  */
-function parseCapitalOneTableItem(
+export function parseCapitalOneTableItem(
   mentionText: string | undefined,
   properties: DocumentAiEntity[] | undefined,
   statementYear?: number,
@@ -1372,7 +1372,7 @@ function parseCapitalOneTableItem(
  * Filter out Amex payment coupon addresses and other garbage entries
  * These are the source of zip codes being parsed as amounts (e.g., -$603M)
  */
-function isAmexGarbage(text: string): boolean {
+export function isAmexGarbage(text: string): boolean {
   const garbagePatterns = [
     /PO BOX \d+/i,
     /CAROL STREAM/i,
@@ -1401,7 +1401,7 @@ function isAmexGarbage(text: string): boolean {
  * - Payments/Credits: negative (reduces what you owe)
  * - Purchases/Fees/Interest: positive (adds to what you owe)
  */
-function parseAmexTableItem(
+export function parseAmexTableItem(
   mentionText: string | undefined,
   statementYear?: number
 ): { date: string; amount: string; description: string } | null {
@@ -1494,7 +1494,7 @@ function parseAmexTableItem(
  * Key insight: Business income has "ODD JOBS" and is NOT a payment.
  * Everything else defaults to debit (expense).
  */
-function getDollarBankSign(description: string): number {
+export function getDollarBankSign(description: string): number {
   const descUpper = description.toUpperCase();
   
   // POS and ATM transactions are ALWAYS debits - check first
@@ -1521,7 +1521,7 @@ function getDollarBankSign(description: string): number {
  *         "05/01 CAPITAL ONE 9279744391\nONLINE PMT 3RIWAA4RW7JVXF1 ALI SIMMS 1,117.43"
  * Pattern: Date(s) at start (MM/DD), description in middle, amount at end (NO dollar sign)
  */
-function parseDollarBankTableItem(
+export function parseDollarBankTableItem(
   mentionText: string | undefined,
   statementYear?: number
 ): { date: string; amount: string; description: string } | null {
