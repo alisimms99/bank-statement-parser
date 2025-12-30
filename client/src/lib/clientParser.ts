@@ -2,8 +2,9 @@
  * Client-side parser orchestrator.
  * Parses PDFs client-side using custom parsers, falls back to Document AI for unknown banks.
  */
-import { extractTextFromPDF, parseStatementText, legacyTransactionsToCanonical } from "./pdfParser";
+import { extractTextFromPDF, legacyTransactionsToCanonical } from "./pdfParser";
 import { detectBank, type BankType } from "./bankDetection";
+import { parseBankText } from "./bankParsers";
 import { ingestWithDocumentAI } from "./ingestionClient";
 import { apiUrl as getApiUrl } from "./apiBaseUrl";
 import type { CanonicalDocument, CanonicalTransaction } from "@shared/transactions";
@@ -40,10 +41,15 @@ export async function parseBankStatementClient(
     
     // 2. Detect bank
     const bankType = detectBank(text, file.name);
-    console.log(`[Client Parser] Detected bank: ${bankType}`);
+    console.log(`[Client Parser] Detected bank: ${bankType}`, {
+      fileName: file.name,
+      textLength: text.length,
+      textPreview: text.substring(0, 200),
+    });
     
     // 3. Use custom parser for known banks
     if (bankType !== 'unknown') {
+      console.log(`[Client Parser] ✅ Bank detected: ${bankType} - using custom parser (NOT Document AI)`);
       try {
         console.log(`[Client Parser] Using custom ${bankType} parser`);
         const legacyTransactions = parseStatementText(text);
@@ -61,10 +67,18 @@ export async function parseBankStatementClient(
           source_bank: bankType,
         }));
         
-        console.log(`[Client Parser] ✅ Extracted ${transactionsWithBank.length} transactions using custom parser`);
+        console.log(`[Client Parser] ✅ Extracted ${transactionsWithBank.length} transactions using custom ${bankType} parser`);
+        console.log(`[Client Parser] Sample transactions:`, transactionsWithBank.slice(0, 3).map(tx => ({
+          date: tx.date,
+          description: tx.description.substring(0, 50),
+          debit: tx.debit,
+          credit: tx.credit,
+        })));
         
         // Send parsed transactions to server for storage
         const exportId = await sendParsedTransactionsToServer(transactionsWithBank, file.name);
+        
+        console.log(`[Client Parser] ✅ Successfully parsed and stored ${transactionsWithBank.length} transactions - NOT using Document AI`);
         
         return {
           document: {
@@ -78,13 +92,18 @@ export async function parseBankStatementClient(
           exportId,
         };
       } catch (error) {
-        console.error(`[Client Parser] Custom parser failed for ${bankType}:`, error);
+        console.error(`[Client Parser] ❌ Custom parser failed for ${bankType}:`, error);
+        console.error(`[Client Parser] Error details:`, {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
         // Fall through to Document AI fallback
       }
     }
     
     // 4. Fallback to Document AI for unknown banks or if parsing failed
-    console.log(`[Client Parser] Falling back to Document AI (bank: ${bankType})`);
+    console.warn(`[Client Parser] ⚠️ Falling back to Document AI (bank: ${bankType})`);
+    console.warn(`[Client Parser] This should only happen for unknown banks or if custom parser failed`);
     return await fallbackToDocumentAI(file, documentType);
     
   } catch (error) {

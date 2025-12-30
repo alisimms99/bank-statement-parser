@@ -40,7 +40,16 @@ export function detectBank(text: string, fileName?: string): BankType {
   if (first500Chars.includes('dollar bank') || combined.includes('dollar bank')) {
     return 'dollar_bank';
   }
-  if (first500Chars.includes('american express') || first500Chars.includes('amex')) {
+  // Amex detection - check multiple patterns
+  if (
+    first500Chars.includes('american express') || 
+    first500Chars.includes('amex') ||
+    textLower.includes('american express') ||
+    textLower.includes('amex') ||
+    combined.includes('american express') ||
+    combined.includes('amex')
+  ) {
+    console.log('[Bank Detection] ✅ Detected Amex');
     return 'amex';
   }
   if (first500Chars.includes('citizens bank') || first500Chars.includes('citizens')) {
