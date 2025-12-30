@@ -727,7 +727,7 @@ function isChaseGarbage(text: string): boolean {
  * Extract year and month from Chase filename
  * Format: 20240710-statements-2073-.pdf → YYYYMMDD = July 2024
  */
-function getYearFromChaseFilename(filename: string | undefined): { year: number; month: number } | null {
+export function getYearFromChaseFilename(filename: string | undefined): { year: number; month: number } | null {
   if (!filename) return null;
   // 20240710-statements-2073-.pdf → YYYYMMDD
   const match = filename.match(/^(\d{4})(\d{2})(\d{2})-statements/i);
