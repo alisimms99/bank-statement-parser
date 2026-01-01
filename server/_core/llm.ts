@@ -60,6 +60,7 @@ export type InvokeParams = {
   tools?: Tool[];
   toolChoice?: ToolChoice;
   tool_choice?: ToolChoice;
+  model?: string;
   maxTokens?: number;
   max_tokens?: number;
   outputSchema?: OutputSchema;
@@ -216,7 +217,7 @@ const resolveApiUrl = () =>
 
 const assertApiKey = () => {
   if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+    throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
   }
 };
 
@@ -273,6 +274,9 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     tools,
     toolChoice,
     tool_choice,
+    model,
+    maxTokens,
+    max_tokens,
     outputSchema,
     output_schema,
     responseFormat,
@@ -280,7 +284,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model: model || "gemini-2.5-flash",
     messages: messages.map(normalizeMessage),
   };
 
@@ -296,10 +300,19 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_tokens = 32768
-  payload.thinking = {
-    "budget_tokens": 128
+  const resolvedMaxTokens = maxTokens ?? max_tokens;
+  if (typeof resolvedMaxTokens !== "undefined") {
+    if (!Number.isFinite(resolvedMaxTokens) || resolvedMaxTokens <= 0) {
+      throw new Error("maxTokens must be a positive finite number");
+    }
+    payload.max_tokens = Math.floor(resolvedMaxTokens);
+  } else {
+    payload.max_tokens = 32768;
   }
+
+  payload.thinking = {
+    budget_tokens: 128,
+  };
 
   const normalizedResponseFormat = normalizeResponseFormat({
     responseFormat,

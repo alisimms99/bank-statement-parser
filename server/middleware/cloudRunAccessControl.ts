@@ -122,7 +122,8 @@ export async function requireCloudRunApiAccess(req: Request, res: Response, next
     req.path.startsWith("/api/auth/") ||
     req.path.startsWith("/api/trpc/") ||
     req.path.startsWith("/api/ingest") ||
-    req.path.startsWith("/api/export")
+    req.path.startsWith("/api/export") ||
+    req.path.startsWith("/api/cleanup")
   ) {
     return next();
   }
