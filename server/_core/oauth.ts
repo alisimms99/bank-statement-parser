@@ -144,6 +144,8 @@ export function registerOAuthRoutes(app: Express) {
         name: name ?? undefined,
         picture: picture ?? undefined,
         openId: email, // Use email as openId
+        accessToken: tokens.access_token ?? undefined,
+        refreshToken: tokens.refresh_token ?? undefined,
       });
 
       // Set session cookie
