@@ -582,7 +582,7 @@ export function registerExportRoutes(app: Express): void {
       );
 
       if (!moveResponse.ok) {
-        console.warn("Failed to move spreadsheet to folder, continuing anyway");
+        console.warn("Failed to move spreadsheet to folder. The spreadsheet was created in the root folder instead. Continuing with export.");
       }
 
       // Prepare data for the spreadsheet

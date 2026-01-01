@@ -256,7 +256,7 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
       </div>
 
       {/* Export Button */}
-      {exportState === 'idle' || exportState === 'selecting' && (
+      {(exportState === 'idle' || exportState === 'selecting') && (
         <Button
           onClick={handleExport}
           disabled={!selectedFolder || !sheetName.trim() || transactions.length === 0 || exportState === 'selecting'}
