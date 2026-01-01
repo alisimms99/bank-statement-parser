@@ -60,6 +60,7 @@ export type InvokeParams = {
   tools?: Tool[];
   toolChoice?: ToolChoice;
   tool_choice?: ToolChoice;
+  model?: string;
   maxTokens?: number;
   max_tokens?: number;
   outputSchema?: OutputSchema;
@@ -216,7 +217,7 @@ const resolveApiUrl = () =>
 
 const assertApiKey = () => {
   if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+    throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
   }
 };
 
@@ -273,6 +274,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     tools,
     toolChoice,
     tool_choice,
+    model,
     outputSchema,
     output_schema,
     responseFormat,
@@ -280,7 +282,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model: model || "gemini-2.5-flash",
     messages: messages.map(normalizeMessage),
   };
 
