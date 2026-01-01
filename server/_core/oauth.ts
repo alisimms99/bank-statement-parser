@@ -41,7 +41,13 @@ export function registerOAuthRoutes(app: Express) {
     // Generate state for CSRF protection
     const state = Buffer.from(JSON.stringify({ redirect: req.query.redirect || "/" })).toString("base64");
 
-    const scopes = ["openid", "email", "profile"];
+    const scopes = [
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/spreadsheets",
+      "https://www.googleapis.com/auth/drive.file",
+    ];
     const authUrl = client.generateAuthUrl({
       access_type: "offline",
       scope: scopes.join(" "),
