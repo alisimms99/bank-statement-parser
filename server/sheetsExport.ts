@@ -266,6 +266,7 @@ export async function exportTransactionsToGoogleSheet(
       const getRes = await drive.files.get({
         fileId: spreadsheetId,
         fields: "parents",
+        supportsAllDrives: true,
       });
       const previousParents = getRes.data.parents?.join(",") ?? "";
       await drive.files.update({
@@ -273,6 +274,7 @@ export async function exportTransactionsToGoogleSheet(
         addParents: folderId,
         removeParents: previousParents || undefined,
         fields: "id, parents",
+        supportsAllDrives: true,
       });
     } catch (moveErr) {
       const message = extractGoogleApiErrorMessage(
@@ -283,7 +285,10 @@ export async function exportTransactionsToGoogleSheet(
       // Best-effort cleanup to avoid orphaning the created sheet in Drive root.
       let cleanupErr: unknown | undefined;
       try {
-        await drive.files.delete({ fileId: spreadsheetId });
+        await drive.files.delete({ 
+          fileId: spreadsheetId,
+          supportsAllDrives: true,
+        });
       } catch (err) {
         cleanupErr = err;
       }
