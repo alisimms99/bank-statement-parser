@@ -25,10 +25,9 @@ type ExportState = "idle" | "selecting" | "exporting" | "success" | "error";
 
 export default function SheetsExport({ transactions }: SheetsExportProps) {
   const { user } = useAuth();
-  const [selectedFolder, setSelectedFolder] = useState<SelectedFolder | null>(
-    null,
-  );
+  const [selectedFolder, setSelectedFolder] = useState<SelectedFolder | null>(null);
   const [sheetName, setSheetName] = useState<string>("");
+  const [sheetTabName, setSheetTabName] = useState<string>("Transactions");
   const [exportState, setExportState] = useState<ExportState>("idle");
   const [exportedSheetUrl, setExportedSheetUrl] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
@@ -163,6 +162,8 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
       return;
     }
 
+    const finalSheetTabName = sheetTabName.trim() || "Transactions";
+
     if (transactions.length === 0) {
       toast.error("No transactions to export");
       return;
@@ -180,6 +181,7 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
           transactions,
           folderId: selectedFolder.id,
           sheetName: sheetName.trim(),
+          sheetTabName: finalSheetTabName,
         }),
       });
 
@@ -308,6 +310,28 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
         </p>
       </div>
 
+      {/* Sheet Tab Name Input */}
+      <div className="space-y-2">
+        <label
+          htmlFor="sheet-tab-name"
+          className="text-sm font-medium text-foreground"
+        >
+          Sheet Tab Name
+        </label>
+        <Input
+          id="sheet-tab-name"
+          type="text"
+          value={sheetTabName}
+          onChange={(e) => setSheetTabName(e.target.value)}
+          placeholder="Transactions"
+          disabled={exportState === "exporting"}
+        />
+        <p className="text-xs text-muted-foreground">
+          Transactions will be written to this tab within the spreadsheet
+        </p>
+      </div>
+
+      {/* Export Button */}
       {(exportState === "idle" || exportState === "selecting") && (
         <Button
           onClick={handleExport}

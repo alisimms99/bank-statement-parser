@@ -6,8 +6,6 @@ import type { NormalizedTransaction } from "@shared/types";
 import { recordExportEvent, type ExportFormat } from "./_core/exportMetrics";
 import { logEvent, serializeError } from "./_core/log";
 import { requireAuth } from "./middleware/auth";
-import { exportTransactionsToGoogleSheet } from "./sheetsExport";
-import type { AuthenticatedRequest } from "./middleware/auth";
 import { OAuth2Client } from "google-auth-library";
 import { ENV } from "./_core/env";
 import { verifySessionToken } from "./middleware/auth";
@@ -386,73 +384,6 @@ export function registerExportRoutes(app: Express): void {
   });
 
   /**
-   * POST /api/export/sheets
-   * Create a Google Sheet with the provided transactions
-   */
-  app.post("/api/export/sheets", requireAuth, async (req, res) => {
-    try {
-      const { transactions, sheetName, folderId } = req.body ?? {};
-      if (!Array.isArray(transactions) || transactions.length === 0) {
-        return res.status(400).json({
-          error: "Invalid request",
-          message: "transactions array is required and must not be empty",
-        });
-      }
-
-      const userEmail = (req as AuthenticatedRequest).user?.email;
-      if (!userEmail) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-
-      const result = await exportTransactionsToGoogleSheet({
-        transactions,
-        sheetName: typeof sheetName === "string" && sheetName.trim().length > 0 ? sheetName.trim() : "Transactions Export",
-        folderId: typeof folderId === "string" && folderId.trim().length > 0 ? folderId.trim() : undefined,
-        userEmail,
-      });
-
-      res.status(200).json({
-        success: true,
-        spreadsheetId: result.spreadsheetId,
-        spreadsheetUrl: result.spreadsheetUrl,
-      });
-
-      logEvent("export_sheets", {
-        exportId: "combined",
-        success: true,
-        status: 200,
-        transactionCount: transactions.length,
-      });
-      recordExportEvent({
-        exportId: "combined",
-        format: "sheets",
-        transactionCount: transactions.length,
-        timestamp: Date.now(),
-        success: true,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      logEvent(
-        "export_sheets",
-        { exportId: "combined", success: false, status: 500, error: serializeError(error) },
-        "error"
-      );
-      recordExportEvent({
-        exportId: "combined",
-        format: "sheets",
-        transactionCount: 0,
-        timestamp: Date.now(),
-        success: false,
-        error: message,
-      });
-      res.status(500).json({
-        error: "Failed to create Google Sheet",
-        message,
-      });
-    }
-  });
-
-  /**
    * GET /api/export/:id/pdf
    * Export transactions as PDF (stub implementation)
    */
@@ -564,7 +495,11 @@ export function registerExportRoutes(app: Express): void {
    */
   app.post("/api/export/sheets", requireAuth, async (req, res) => {
     try {
-      const { transactions, folderId, sheetName } = req.body;
+      const { transactions, folderId, sheetName, sheetTabName } = req.body;
+      const finalSheetTabName =
+        typeof sheetTabName === "string" && sheetTabName.trim() ? sheetTabName.trim() : "Transactions";
+
+      const escapeSheetTabNameForA1 = (tabName: string) => tabName.replace(/'/g, "''");
 
       if (!Array.isArray(transactions) || transactions.length === 0) {
         return res.status(400).json({
@@ -625,7 +560,7 @@ export function registerExportRoutes(app: Express): void {
           sheets: [
             {
               properties: {
-                title: "Transactions",
+                title: finalSheetTabName,
               },
             },
           ],
@@ -687,8 +622,9 @@ export function registerExportRoutes(app: Express): void {
       const allData = [headers, ...rows];
 
       // Update the spreadsheet with transaction data
+      const range = `'${escapeSheetTabNameForA1(finalSheetTabName)}'!A1`;
       const updateResponse = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Transactions!A1:append?valueInputOption=RAW`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW`,
         {
           method: "POST",
           headers: {
@@ -765,6 +701,7 @@ export function registerExportRoutes(app: Express): void {
         status: 200,
         transactionCount: transactions.length,
         sheetName,
+        sheetTabName: finalSheetTabName,
         folderId,
       });
 
