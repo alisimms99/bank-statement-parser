@@ -3,6 +3,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import FileUpload from "@/components/FileUpload";
 import TransactionTable from "@/components/TransactionTable";
+import SheetsExport from "@/components/SheetsExport";
 import DebugPanel, { type IngestionDebugData } from "@/components/ingestion/DebugPanel";
 import ResultPreviewModal from "@/components/ingestion/ResultPreviewModal";
 import type { FileStatus } from "@/components/ingestion/StepFlow";
@@ -586,6 +587,9 @@ export default function Home() {
 
                 {/* Transaction table */}
                 <TransactionTable transactions={transactions} />
+
+                {/* Google Sheets Export */}
+                <SheetsExport transactions={normalizedTransactions} />
               </div>
             )}
 
