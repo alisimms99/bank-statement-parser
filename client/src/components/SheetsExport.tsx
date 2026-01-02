@@ -194,7 +194,7 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
         requestBody.sheetName = sheetName.trim();
       } else {
         requestBody.spreadsheetId = masterSheetId.trim();
-        requestBody.sheetName = sheetTabName.trim();
+        requestBody.sheetTabName = sheetTabName.trim();
       }
 
       const response = await fetch('/api/export/sheets', {
