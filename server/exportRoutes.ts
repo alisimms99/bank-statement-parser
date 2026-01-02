@@ -6,6 +6,8 @@ import type { NormalizedTransaction } from "@shared/types";
 import { recordExportEvent, type ExportFormat } from "./_core/exportMetrics";
 import { logEvent, serializeError } from "./_core/log";
 import { requireAuth } from "./middleware/auth";
+import { exportTransactionsToGoogleSheet } from "./sheetsExport";
+import type { AuthenticatedRequest } from "./middleware/auth";
 import { OAuth2Client } from "google-auth-library";
 import { ENV } from "./_core/env";
 import { verifySessionToken } from "./middleware/auth";
@@ -323,8 +325,11 @@ export function registerExportRoutes(app: Express): void {
    * Export transactions as PDF from request body (for accumulated transactions)
    */
   app.post("/api/export/pdf", requireAuth, (req, res) => {
+    // Keep a reference for metrics in the catch block.
+    // If we pass validation, `transactions` is known-good and `length` is accurate.
+    let transactions: unknown;
     try {
-      const { transactions } = req.body;
+      ({ transactions } = req.body ?? {});
       
       if (!Array.isArray(transactions) || transactions.length === 0) {
         return res.status(400).json({ 
@@ -367,7 +372,7 @@ export function registerExportRoutes(app: Express): void {
       recordExportEvent({
         exportId: "combined",
         format: "pdf",
-        transactionCount: 0,
+        transactionCount: Array.isArray(transactions) ? transactions.length : 0,
         timestamp: Date.now(),
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
@@ -376,6 +381,73 @@ export function registerExportRoutes(app: Express): void {
       res.status(500).json({ 
         error: "Failed to generate PDF export",
         message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
+   * POST /api/export/sheets
+   * Create a Google Sheet with the provided transactions
+   */
+  app.post("/api/export/sheets", requireAuth, async (req, res) => {
+    try {
+      const { transactions, sheetName, folderId } = req.body ?? {};
+      if (!Array.isArray(transactions) || transactions.length === 0) {
+        return res.status(400).json({
+          error: "Invalid request",
+          message: "transactions array is required and must not be empty",
+        });
+      }
+
+      const userEmail = (req as AuthenticatedRequest).user?.email;
+      if (!userEmail) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const result = await exportTransactionsToGoogleSheet({
+        transactions,
+        sheetName: typeof sheetName === "string" && sheetName.trim().length > 0 ? sheetName.trim() : "Transactions Export",
+        folderId: typeof folderId === "string" && folderId.trim().length > 0 ? folderId.trim() : undefined,
+        userEmail,
+      });
+
+      res.status(200).json({
+        success: true,
+        spreadsheetId: result.spreadsheetId,
+        spreadsheetUrl: result.spreadsheetUrl,
+      });
+
+      logEvent("export_sheets", {
+        exportId: "combined",
+        success: true,
+        status: 200,
+        transactionCount: transactions.length,
+      });
+      recordExportEvent({
+        exportId: "combined",
+        format: "sheets",
+        transactionCount: transactions.length,
+        timestamp: Date.now(),
+        success: true,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      logEvent(
+        "export_sheets",
+        { exportId: "combined", success: false, status: 500, error: serializeError(error) },
+        "error"
+      );
+      recordExportEvent({
+        exportId: "combined",
+        format: "sheets",
+        transactionCount: 0,
+        timestamp: Date.now(),
+        success: false,
+        error: message,
+      });
+      res.status(500).json({
+        error: "Failed to create Google Sheet",
+        message,
       });
     }
   });
@@ -604,7 +676,7 @@ export function registerExportRoutes(app: Express): void {
       ];
 
       const rows = transactions.map((tx: CanonicalTransaction) => [
-        tx.date || "",
+        tx.date ?? tx.posted_date ?? "",
         tx.description || "",
         tx.payee || "",
         tx.debit?.toString() || "",

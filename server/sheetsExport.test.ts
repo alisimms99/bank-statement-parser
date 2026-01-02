@@ -1,0 +1,196 @@
+import { describe, expect, it, vi, beforeEach } from "vitest";
+
+// vitest hoists `vi.mock` calls, so any referenced variables must be hoisted too.
+const { mockSheets, mockDrive } = vi.hoisted(() => {
+  const mockSheets = {
+    spreadsheets: {
+      create: vi.fn(),
+      values: {
+        update: vi.fn(),
+      },
+      batchUpdate: vi.fn(),
+    },
+  };
+
+  const mockDrive = {
+    permissions: {
+      create: vi.fn(),
+    },
+    files: {
+      get: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+    },
+  };
+
+  return { mockSheets, mockDrive };
+});
+
+vi.mock("googleapis", () => ({
+  google: {
+    auth: {
+      GoogleAuth: vi.fn().mockImplementation(() => ({})),
+    },
+    sheets: vi.fn().mockReturnValue(mockSheets),
+    drive: vi.fn().mockReturnValue(mockDrive),
+  },
+  sheets_v4: {},
+  drive_v3: {},
+}));
+
+vi.mock("./_core/env", () => ({
+  getDocumentAiConfig: vi.fn().mockReturnValue({
+    credentials: { client_email: "x", private_key: "y" },
+  }),
+}));
+
+import {
+  exportTransactionsToGoogleSheet,
+  SheetsExportError,
+} from "./sheetsExport";
+
+describe("exportTransactionsToGoogleSheet - folder move failure behavior", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    mockSheets.spreadsheets.create.mockResolvedValue({
+      data: {
+        spreadsheetId: "sheet_123",
+        spreadsheetUrl: "https://docs.google.com/spreadsheets/d/sheet_123",
+        sheets: [{ properties: { sheetId: 1, title: "Transactions" } }],
+      },
+    });
+    mockSheets.spreadsheets.values.update.mockResolvedValue({});
+    mockSheets.spreadsheets.batchUpdate.mockResolvedValue({});
+
+    mockDrive.permissions.create.mockResolvedValue({ data: { id: "perm_1" } });
+    mockDrive.files.get.mockResolvedValue({ data: { parents: ["root"] } });
+  });
+
+  it("falls back to posted_date when date is null (matches CSV behavior)", async () => {
+    mockDrive.files.update.mockResolvedValue({});
+
+    await exportTransactionsToGoogleSheet({
+      transactions: [
+        {
+          date: null,
+          posted_date: "2024-01-05",
+          description: "Test",
+          payee: "Payee",
+          credit: 10,
+          debit: 0,
+          balance: 100,
+        } as any,
+      ],
+      sheetName: "Test Export",
+      userEmail: "user@example.com",
+    });
+
+    const call = mockSheets.spreadsheets.values.update.mock.calls[0]?.[0];
+    expect(call.requestBody.values[1][0]).toBe("2024-01-05");
+  });
+
+  it("deletes created spreadsheet when move fails (no orphan)", async () => {
+    mockDrive.files.update.mockRejectedValue(new Error("Invalid folder ID"));
+    mockDrive.files.delete.mockResolvedValue({});
+
+    await expect(
+      exportTransactionsToGoogleSheet({
+        transactions: [
+          {
+            date: "2025-01-01",
+            description: "Test",
+            payee: "Payee",
+            credit: 10,
+            debit: 0,
+            balance: 100,
+          } as any,
+        ],
+        sheetName: "Test Export",
+        folderId: "bad_folder",
+        userEmail: "user@example.com",
+      })
+    ).rejects.toMatchObject({
+      name: "SheetsExportError",
+      kind: "drive_move_failed_spreadsheet_deleted",
+      spreadsheetId: "sheet_123",
+      spreadsheetUrl: "https://docs.google.com/spreadsheets/d/sheet_123",
+    });
+
+    expect(mockDrive.files.get).toHaveBeenCalledWith({
+      fileId: "sheet_123",
+      fields: "parents",
+      supportsAllDrives: true,
+    });
+    expect(mockDrive.files.delete).toHaveBeenCalledWith({ 
+      fileId: "sheet_123",
+      supportsAllDrives: true,
+    });
+  });
+
+  it("includes spreadsheet URL in error if cleanup fails (caller can still access)", async () => {
+    mockDrive.files.update.mockRejectedValue(new Error("Permission denied"));
+    mockDrive.files.delete.mockRejectedValue(new Error("Delete failed"));
+
+    let thrown: unknown;
+    try {
+      await exportTransactionsToGoogleSheet({
+        transactions: [
+          {
+            date: "2025-01-01",
+            description: "Test",
+            payee: "Payee",
+            credit: 10,
+            debit: 0,
+            balance: 100,
+          } as any,
+        ],
+        sheetName: "Test Export",
+        folderId: "no_permission",
+        userEmail: "user@example.com",
+      });
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(SheetsExportError);
+    const e = thrown as SheetsExportError;
+    expect(e.kind).toBe("drive_move_failed_spreadsheet_retained");
+    expect(e.spreadsheetUrl).toBe("https://docs.google.com/spreadsheets/d/sheet_123");
+    expect(e.message).toContain(e.spreadsheetUrl);
+  });
+
+  it("passes supportsAllDrives flag when moving to shared drive folder", async () => {
+    mockDrive.files.update.mockResolvedValue({});
+
+    await exportTransactionsToGoogleSheet({
+      transactions: [
+        {
+          date: "2025-01-01",
+          description: "Test",
+          payee: "Payee",
+          credit: 10,
+          debit: 0,
+          balance: 100,
+        } as any,
+      ],
+      sheetName: "Test Export",
+      folderId: "shared_drive_folder",
+      userEmail: "user@example.com",
+    });
+
+    expect(mockDrive.files.get).toHaveBeenCalledWith({
+      fileId: "sheet_123",
+      fields: "parents",
+      supportsAllDrives: true,
+    });
+    expect(mockDrive.files.update).toHaveBeenCalledWith({
+      fileId: "sheet_123",
+      addParents: "shared_drive_folder",
+      removeParents: "root",
+      fields: "id, parents",
+      supportsAllDrives: true,
+    });
+  });
+});
+
