@@ -1,4 +1,4 @@
-export type ExportFormat = "csv" | "pdf";
+export type ExportFormat = "csv" | "pdf" | "sheets";
 
 export interface ExportEvent {
   exportId: string;
