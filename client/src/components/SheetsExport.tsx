@@ -26,15 +26,8 @@ type ExportState = "idle" | "selecting" | "exporting" | "success" | "error";
 export default function SheetsExport({ transactions }: SheetsExportProps) {
   const { user } = useAuth();
   const [selectedFolder, setSelectedFolder] = useState<SelectedFolder | null>(null);
-  const [sheetName, setSheetName] = useState<string>('');
-  const [sheetTabName, setSheetTabName] = useState<string>('Transactions');
-  const [exportState, setExportState] = useState<ExportState>('idle');
-  const [exportedSheetUrl, setExportedSheetUrl] = useState<string>('');
-  const [errorMessage, setErrorMessage] = useState<string>('');
-  const [selectedFolder, setSelectedFolder] = useState<SelectedFolder | null>(
-    null,
-  );
   const [sheetName, setSheetName] = useState<string>("");
+  const [sheetTabName, setSheetTabName] = useState<string>("Transactions");
   const [exportState, setExportState] = useState<ExportState>("idle");
   const [exportedSheetUrl, setExportedSheetUrl] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
@@ -169,7 +162,7 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
       return;
     }
 
-    const finalSheetTabName = sheetTabName.trim() || 'Transactions';
+    const finalSheetTabName = sheetTabName.trim() || "Transactions";
 
     if (transactions.length === 0) {
       toast.error("No transactions to export");
@@ -319,7 +312,10 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
 
       {/* Sheet Tab Name Input */}
       <div className="space-y-2">
-        <label htmlFor="sheet-tab-name" className="text-sm font-medium text-foreground">
+        <label
+          htmlFor="sheet-tab-name"
+          className="text-sm font-medium text-foreground"
+        >
           Sheet Tab Name
         </label>
         <Input
@@ -328,7 +324,7 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
           value={sheetTabName}
           onChange={(e) => setSheetTabName(e.target.value)}
           placeholder="Transactions"
-          disabled={exportState === 'exporting'}
+          disabled={exportState === "exporting"}
         />
         <p className="text-xs text-muted-foreground">
           Transactions will be written to this tab within the spreadsheet
@@ -336,7 +332,6 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
       </div>
 
       {/* Export Button */}
-      {(exportState === 'idle' || exportState === 'selecting') && (
       {(exportState === "idle" || exportState === "selecting") && (
         <Button
           onClick={handleExport}
