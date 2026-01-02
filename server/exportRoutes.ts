@@ -6,6 +6,11 @@ import type { NormalizedTransaction } from "@shared/types";
 import { recordExportEvent, type ExportFormat } from "./_core/exportMetrics";
 import { logEvent, serializeError } from "./_core/log";
 import { requireAuth } from "./middleware/auth";
+import { OAuth2Client } from "google-auth-library";
+import { ENV } from "./_core/env";
+import { verifySessionToken } from "./middleware/auth";
+import { parse as parseCookie } from "cookie";
+import { COOKIE_NAME } from "@shared/const";
 
 // In-memory store for transactions (keyed by UUID)
 // In production, this could be replaced with Redis or a database
@@ -476,6 +481,257 @@ export function registerExportRoutes(app: Express): void {
       
       res.status(500).json({ 
         error: "Failed to generate PDF export",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
+   * POST /api/export/sheets
+   * Export transactions to Google Sheets
+   */
+  app.post("/api/export/sheets", requireAuth, async (req, res) => {
+    try {
+      const { transactions, folderId, sheetName } = req.body;
+
+      if (!Array.isArray(transactions) || transactions.length === 0) {
+        return res.status(400).json({
+          error: "Invalid request",
+          message: "transactions array is required and must not be empty",
+        });
+      }
+
+      if (!folderId || typeof folderId !== "string") {
+        return res.status(400).json({
+          error: "Invalid request",
+          message: "folderId is required",
+        });
+      }
+
+      if (!sheetName || typeof sheetName !== "string") {
+        return res.status(400).json({
+          error: "Invalid request",
+          message: "sheetName is required",
+        });
+      }
+
+      // Get access token from session
+      const cookieHeader = req.headers.cookie;
+      if (!cookieHeader) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const cookies = parseCookie(cookieHeader);
+      const sessionToken = cookies[COOKIE_NAME];
+
+      if (!sessionToken) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const session = await verifySessionToken(sessionToken);
+      if (!session || !session.accessToken) {
+        return res.status(401).json({ error: "No access token available. Please sign in again." });
+      }
+
+      // Initialize Google Sheets API
+      const oauth2Client = new OAuth2Client();
+      oauth2Client.setCredentials({
+        access_token: session.accessToken,
+      });
+
+      // Create a new spreadsheet in the specified folder
+      const createResponse = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${session.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          properties: {
+            title: sheetName,
+          },
+          sheets: [
+            {
+              properties: {
+                title: "Transactions",
+              },
+            },
+          ],
+        }),
+      });
+
+      if (!createResponse.ok) {
+        const error = await createResponse.json();
+        throw new Error(error.error?.message || "Failed to create spreadsheet");
+      }
+
+      const spreadsheet = await createResponse.json();
+      const spreadsheetId = spreadsheet.spreadsheetId;
+      const sheetUrl = spreadsheet.spreadsheetUrl;
+
+      // Move the spreadsheet to the specified folder using Drive API
+      const moveResponse = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${folderId}&removeParents=root`,
+        {
+          method: "PATCH",
+          headers: {
+            "Authorization": `Bearer ${session.accessToken}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!moveResponse.ok) {
+        console.warn("Failed to move spreadsheet to folder. The spreadsheet was created in the root folder instead. Continuing with export.");
+      }
+
+      // Prepare data for the spreadsheet
+      const headers = [
+        "Date",
+        "Description",
+        "Payee",
+        "Debit",
+        "Credit",
+        "Balance",
+        "Account ID",
+        "Source Bank",
+        "Statement Period Start",
+        "Statement Period End",
+      ];
+
+      const rows = transactions.map((tx: CanonicalTransaction) => [
+        tx.date || "",
+        tx.description || "",
+        tx.payee || "",
+        tx.debit?.toString() || "",
+        tx.credit?.toString() || "",
+        tx.balance?.toString() || "",
+        tx.account_id || "",
+        tx.source_bank || "",
+        tx.statement_period?.start || "",
+        tx.statement_period?.end || "",
+      ]);
+
+      const allData = [headers, ...rows];
+
+      // Update the spreadsheet with transaction data
+      const updateResponse = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Transactions!A1:append?valueInputOption=RAW`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${session.accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            values: allData,
+          }),
+        }
+      );
+
+      if (!updateResponse.ok) {
+        const error = await updateResponse.json();
+        throw new Error(error.error?.message || "Failed to write data to spreadsheet");
+      }
+
+      // Format the header row
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${session.accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            requests: [
+              {
+                repeatCell: {
+                  range: {
+                    sheetId: 0,
+                    startRowIndex: 0,
+                    endRowIndex: 1,
+                  },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: {
+                        red: 0.2,
+                        green: 0.2,
+                        blue: 0.2,
+                      },
+                      textFormat: {
+                        foregroundColor: {
+                          red: 1.0,
+                          green: 1.0,
+                          blue: 1.0,
+                        },
+                        bold: true,
+                      },
+                    },
+                  },
+                  fields: "userEnteredFormat(backgroundColor,textFormat)",
+                },
+              },
+              {
+                autoResizeDimensions: {
+                  dimensions: {
+                    sheetId: 0,
+                    dimension: "COLUMNS",
+                    startIndex: 0,
+                    endIndex: headers.length,
+                  },
+                },
+              },
+            ],
+          }),
+        }
+      );
+
+      logEvent("export_sheets", {
+        exportId: spreadsheetId,
+        success: true,
+        status: 200,
+        transactionCount: transactions.length,
+        sheetName,
+        folderId,
+      });
+
+      recordExportEvent({
+        exportId: spreadsheetId,
+        format: "sheets" as ExportFormat,
+        transactionCount: transactions.length,
+        timestamp: Date.now(),
+        success: true,
+      });
+
+      res.json({
+        success: true,
+        spreadsheetId,
+        sheetUrl,
+        transactionCount: transactions.length,
+      });
+    } catch (error) {
+      logEvent(
+        "export_sheets",
+        {
+          success: false,
+          status: 500,
+          error: serializeError(error),
+        },
+        "error"
+      );
+
+      recordExportEvent({
+        exportId: "failed",
+        format: "sheets" as ExportFormat,
+        transactionCount: 0,
+        timestamp: Date.now(),
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+
+      res.status(500).json({
+        error: "Failed to export to Google Sheets",
         message: error instanceof Error ? error.message : "Unknown error",
       });
     }
