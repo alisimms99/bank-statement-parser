@@ -22,6 +22,8 @@ type ExportMode = 'create' | 'append';
 
 const MASTER_SHEET_ID_KEY = 'masterSheetId';
 const MASTER_SHEET_URL_KEY = 'masterSheetUrl';
+const buildSpreadsheetUrl = (spreadsheetId: string) =>
+  `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
 
 export default function SheetsExport({ transactions }: SheetsExportProps) {
   const { user } = useAuth();
@@ -48,7 +50,7 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
     const savedMasterSheetUrl = localStorage.getItem(MASTER_SHEET_URL_KEY);
     if (savedMasterSheetId) {
       setMasterSheetId(savedMasterSheetId);
-      setMasterSheetUrl(savedMasterSheetUrl || '');
+      setMasterSheetUrl(savedMasterSheetUrl || buildSpreadsheetUrl(savedMasterSheetId));
       setExportMode('append');
     }
   }, []);
@@ -129,15 +131,20 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
   };
 
   const handleSaveMasterSheet = () => {
-    if (!masterSheetId.trim()) {
+    const trimmedId = masterSheetId.trim();
+    if (!trimmedId) {
       toast.error('Please enter a spreadsheet ID');
       return;
     }
 
-    localStorage.setItem(MASTER_SHEET_ID_KEY, masterSheetId.trim());
-    if (masterSheetUrl.trim()) {
-      localStorage.setItem(MASTER_SHEET_URL_KEY, masterSheetUrl.trim());
-    }
+    const nextUrl = buildSpreadsheetUrl(trimmedId);
+
+    // Normalize state and always keep URL in sync with the saved ID.
+    setMasterSheetId(trimmedId);
+    setMasterSheetUrl(nextUrl);
+
+    localStorage.setItem(MASTER_SHEET_ID_KEY, trimmedId);
+    localStorage.setItem(MASTER_SHEET_URL_KEY, nextUrl);
     toast.success('Master sheet ID saved!');
   };
 
@@ -377,7 +384,11 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
                 id="master-sheet-id"
                 type="text"
                 value={masterSheetId}
-                onChange={(e) => setMasterSheetId(e.target.value)}
+                onChange={(e) => {
+                  // If the ID is manually edited, the previously-known URL can become stale.
+                  setMasterSheetId(e.target.value);
+                  setMasterSheetUrl('');
+                }}
                 placeholder="Enter spreadsheet ID (e.g., 1xyz...)"
                 disabled={exportState === 'exporting'}
                 className="flex-1"
