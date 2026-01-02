@@ -34,7 +34,13 @@ export async function getExistingHashes(
     if (response.status === 400) {
       return new Set<string>();
     }
-    const errorText = await response.text();
+    let errorText = "";
+    try {
+      errorText = await response.text();
+    } catch {
+      // If we can't read the response body, use a generic message
+      errorText = response.statusText || "Unknown error";
+    }
     throw new Error(`Failed to fetch existing hashes (${response.status}): ${errorText}`);
   }
 
