@@ -239,9 +239,6 @@ export async function createSessionToken(payload: SessionPayload & { accessToken
   }
 
   return new SignJWT(claims)
-    accessToken: payload.accessToken ?? "",
-    refreshToken: payload.refreshToken ?? "",
-  })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setExpirationTime(expirationSeconds)
     .setIssuedAt(Math.floor(issuedAt / 1000))
