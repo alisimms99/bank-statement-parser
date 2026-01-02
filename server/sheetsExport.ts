@@ -18,44 +18,40 @@ export async function getExistingHashes(
   spreadsheetId: string,
   accessToken: string
 ): Promise<Set<string>> {
-  try {
-    const response = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Hashes!A:A`,
-      {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    if (!response.ok) {
-      // If the Hashes sheet doesn't exist, return empty set
-      if (response.status === 400) {
-        return new Set<string>();
-      }
-      throw new Error("Failed to fetch existing hashes");
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Hashes!A:A`,
+    {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
     }
+  );
 
-    const data = await response.json();
-    const hashes = new Set<string>();
-    
-    if (data.values && Array.isArray(data.values)) {
-      // Skip the header row if it exists
-      const startIndex = data.values[0]?.[0] === "Hash" ? 1 : 0;
-      for (let i = startIndex; i < data.values.length; i++) {
-        if (data.values[i]?.[0]) {
-          hashes.add(data.values[i][0]);
-        }
-      }
+  if (!response.ok) {
+    // If the Hashes sheet doesn't exist, return empty set
+    if (response.status === 400) {
+      return new Set<string>();
     }
-
-    return hashes;
-  } catch (error) {
-    console.error("Error fetching existing hashes:", error);
-    return new Set<string>();
+    const errorText = await response.text();
+    throw new Error(`Failed to fetch existing hashes (${response.status}): ${errorText}`);
   }
+
+  const data = await response.json();
+  const hashes = new Set<string>();
+  
+  if (data.values && Array.isArray(data.values)) {
+    // Skip the header row if it exists
+    const startIndex = data.values[0]?.[0] === "Hash" ? 1 : 0;
+    for (let i = startIndex; i < data.values.length; i++) {
+      if (data.values[i]?.[0]) {
+        hashes.add(data.values[i][0]);
+      }
+    }
+  }
+
+  return hashes;
 }
 
 /**
