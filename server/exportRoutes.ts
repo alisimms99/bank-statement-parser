@@ -603,7 +603,7 @@ export function registerExportRoutes(app: Express): void {
       ];
 
       const rows = transactions.map((tx: CanonicalTransaction) => [
-        tx.date || "",
+        tx.date ?? tx.posted_date ?? "",
         tx.description || "",
         tx.payee || "",
         tx.debit?.toString() || "",
