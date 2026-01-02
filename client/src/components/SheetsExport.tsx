@@ -9,7 +9,6 @@ import {
   Loader2,
   XCircle,
 } from "lucide-react";
-import { CheckCircle2, FileSpreadsheet, FolderOpen, Loader2, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -37,31 +36,13 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
   const [pickerApiError, setPickerApiError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Set default sheet name based on current date
     const today = new Date().toISOString().split("T")[0];
-type ExportState = 'idle' | 'selecting' | 'exporting' | 'success' | 'error';
-
-export default function SheetsExport({ transactions }: SheetsExportProps) {
-  const { user } = useAuth();
-  const [selectedFolder, setSelectedFolder] = useState<SelectedFolder | null>(null);
-  const [sheetName, setSheetName] = useState<string>('');
-  const [exportState, setExportState] = useState<ExportState>('idle');
-  const [exportedSheetUrl, setExportedSheetUrl] = useState<string>('');
-  const [errorMessage, setErrorMessage] = useState<string>('');
-  const [pickerApiLoaded, setPickerApiLoaded] = useState(false);
-
-  useEffect(() => {
-    // Set default sheet name based on current date
-    const today = new Date().toISOString().split('T')[0];
     setSheetName(`Bank Transactions ${today}`);
   }, []);
 
   useEffect(() => {
-    // Load the Google Picker API.
-    //
-    // Important: avoid an infinite retry loop if `gapi` never loads
-    // (network issues, ad blocker, firewall), and ensure timers are cleaned up
-    // so we don't keep running after unmount.
+    // Bounded retry + cleanup: avoids infinite setTimeout loops if gapi never loads,
+    // and prevents state updates after unmount.
     let isMounted = true;
     let timeoutId: number | undefined;
 
@@ -108,6 +89,17 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
     };
   }, []);
 
+  const handlePickerCallback = (data: google.picker.ResponseObject) => {
+    if (data.action === google.picker.Action.PICKED && data.docs?.length) {
+      const folder = data.docs[0];
+      setSelectedFolder({ id: folder.id, name: folder.name });
+      setExportState("idle");
+      toast.success(`Selected folder: ${folder.name}`);
+    } else if (data.action === google.picker.Action.CANCEL) {
+      setExportState("idle");
+    }
+  };
+
   const handleOpenPicker = async () => {
     if (pickerApiError) {
       toast.error(pickerApiError);
@@ -118,24 +110,6 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
       toast.error(
         "Google Picker is still loading. Please try again in a moment.",
       );
-    // Load the Google Picker API
-    const loadPickerApi = () => {
-      if (typeof gapi !== 'undefined') {
-        gapi.load('picker', () => {
-          setPickerApiLoaded(true);
-        });
-      } else {
-        // Retry if gapi is not loaded yet
-        setTimeout(loadPickerApi, 100);
-      }
-    };
-
-    loadPickerApi();
-  }, []);
-
-  const handleOpenPicker = async () => {
-    if (!pickerApiLoaded) {
-      toast.error('Google Picker is still loading. Please try again in a moment.');
       return;
     }
 
@@ -147,32 +121,16 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
     setExportState("selecting");
 
     try {
-      // Get the access token from the session
       const response = await fetch("/api/auth/token", {
         credentials: "include",
       });
 
       if (!response.ok) {
         throw new Error("Failed to get access token. Please log in again.");
-      toast.error('You must be logged in to select a folder.');
-      return;
-    }
-
-    setExportState('selecting');
-
-    try {
-      // Get the access token from the session
-      const response = await fetch('/api/auth/token', {
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to get access token. Please log in again.');
       }
 
       const { accessToken } = await response.json();
 
-      // Create and show the picker
       const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
         .setSelectFolderEnabled(true)
         .setIncludeFolders(true);
@@ -182,7 +140,6 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
         .setOAuthToken(accessToken)
         .setCallback(handlePickerCallback)
         .setTitle("Select a Google Drive Folder")
-        .setTitle('Select a Google Drive Folder')
         .build();
 
       picker.setVisible(true);
@@ -192,45 +149,17 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
         error instanceof Error ? error.message : "Failed to open folder picker",
       );
       setExportState("idle");
-      console.error('Error opening picker:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to open folder picker');
-      setExportState('idle');
-    }
-  };
-
-  const handlePickerCallback = (data: google.picker.ResponseObject) => {
-    if (
-      data.action === google.picker.Action.PICKED &&
-      data.docs &&
-      data.docs.length > 0
-    ) {
-    if (data.action === google.picker.Action.PICKED && data.docs && data.docs.length > 0) {
-      const folder = data.docs[0];
-      setSelectedFolder({
-        id: folder.id,
-        name: folder.name,
-      });
-      setExportState("idle");
-      toast.success(`Selected folder: ${folder.name}`);
-    } else if (data.action === google.picker.Action.CANCEL) {
-      setExportState("idle");
-      setExportState('idle');
-      toast.success(`Selected folder: ${folder.name}`);
-    } else if (data.action === google.picker.Action.CANCEL) {
-      setExportState('idle');
     }
   };
 
   const handleExport = async () => {
     if (!selectedFolder) {
       toast.error("Please select a folder first");
-      toast.error('Please select a folder first');
       return;
     }
 
     if (!sheetName.trim()) {
       toast.error("Please enter a sheet name");
-      toast.error('Please enter a sheet name');
       return;
     }
 
@@ -245,24 +174,8 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
     try {
       const response = await fetch("/api/export/sheets", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
-      toast.error('No transactions to export');
-      return;
-    }
-
-    setExportState('exporting');
-    setErrorMessage('');
-
-    try {
-      const response = await fetch('/api/export/sheets', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
         body: JSON.stringify({
           transactions,
           folderId: selectedFolder.id,
@@ -273,7 +186,6 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || "Failed to export to Google Sheets");
-        throw new Error(error.message || 'Failed to export to Google Sheets');
       }
 
       const result = await response.json();
@@ -286,13 +198,6 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
         error instanceof Error ? error.message : "Failed to export to Google Sheets";
       setErrorMessage(message);
       setExportState("error");
-      setExportState('success');
-      toast.success('Successfully exported to Google Sheets!');
-    } catch (error) {
-      console.error('Error exporting to Sheets:', error);
-      const message = error instanceof Error ? error.message : 'Failed to export to Google Sheets';
-      setErrorMessage(message);
-      setExportState('error');
       toast.error(message);
     }
   };
@@ -301,9 +206,6 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
     setExportState("idle");
     setExportedSheetUrl("");
     setErrorMessage("");
-    setExportState('idle');
-    setExportedSheetUrl('');
-    setErrorMessage('');
   };
 
   if (!user) {
@@ -318,15 +220,10 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
               Google Sheets Export
             </h3>
             <p className="text-sm text-muted-foreground">
-              Sign in with Google to export transactions directly to Google
-              Sheets
-            </p>
-          </div>
-          <Button onClick={() => (window.location.href = "/api/auth/google")}>
               Sign in with Google to export transactions directly to Google Sheets
             </p>
           </div>
-          <Button onClick={() => window.location.href = '/api/auth/google'}>
+          <Button onClick={() => (window.location.href = "/api/auth/google")}>
             Sign in with Google
           </Button>
         </div>
@@ -350,7 +247,6 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
         </div>
       </div>
 
-      {/* Folder Selection */}
       <div className="space-y-2">
         <label className="text-sm font-medium text-foreground">
           Destination Folder
@@ -367,17 +263,13 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
             className="gap-2"
           >
             {exportState === "selecting" ? (
-            disabled={exportState === 'selecting' || exportState === 'exporting' || !pickerApiLoaded}
-            className="gap-2"
-          >
-            {exportState === 'selecting' ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <FolderOpen className="w-4 h-4" />
             )}
             {selectedFolder ? "Change Folder" : "Select Folder"}
-            {selectedFolder ? 'Change Folder' : 'Select Folder'}
           </Button>
+
           {selectedFolder && (
             <div className="flex-1 flex items-center px-3 py-2 rounded-md border border-border bg-background/60">
               <span className="text-sm text-foreground truncate">
@@ -386,6 +278,7 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
             </div>
           )}
         </div>
+
         {pickerApiError ? (
           <p className="text-xs text-destructive">{pickerApiError}</p>
         ) : !selectedFolder ? (
@@ -393,20 +286,13 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
             Choose where to save the spreadsheet in your Google Drive
           </p>
         ) : null}
-        {!selectedFolder && (
-          <p className="text-xs text-muted-foreground">
-            Choose where to save the spreadsheet in your Google Drive
-          </p>
-        )}
       </div>
 
-      {/* Sheet Name Input */}
       <div className="space-y-2">
         <label
           htmlFor="sheet-name"
           className="text-sm font-medium text-foreground"
         >
-        <label htmlFor="sheet-name" className="text-sm font-medium text-foreground">
           Sheet Name
         </label>
         <Input
@@ -416,14 +302,12 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
           onChange={(e) => setSheetName(e.target.value)}
           placeholder="Enter sheet name"
           disabled={exportState === "exporting"}
-          disabled={exportState === 'exporting'}
         />
         <p className="text-xs text-muted-foreground">
           A new Google Sheet will be created with this name
         </p>
       </div>
 
-      {/* Export Button */}
       {(exportState === "idle" || exportState === "selecting") && (
         <Button
           onClick={handleExport}
@@ -438,20 +322,10 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
           <FileSpreadsheet className="w-4 h-4" />
           Export {transactions.length} Transaction
           {transactions.length !== 1 ? "s" : ""} to Google Sheets
-      {(exportState === 'idle' || exportState === 'selecting') && (
-        <Button
-          onClick={handleExport}
-          disabled={!selectedFolder || !sheetName.trim() || transactions.length === 0 || exportState === 'selecting'}
-          className="w-full gap-2"
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          Export {transactions.length} Transaction{transactions.length !== 1 ? 's' : ''} to Google Sheets
         </Button>
       )}
 
-      {/* Loading State */}
       {exportState === "exporting" && (
-      {exportState === 'exporting' && (
         <div className="flex items-center justify-center gap-3 py-4 rounded-lg bg-primary/5 border border-primary/20">
           <Loader2 className="w-5 h-5 animate-spin text-primary" />
           <span className="text-sm font-medium text-foreground">
@@ -460,9 +334,7 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
         </div>
       )}
 
-      {/* Success State */}
       {exportState === "success" && exportedSheetUrl && (
-      {exportState === 'success' && exportedSheetUrl && (
         <div className="space-y-3 p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400" />
@@ -475,26 +347,18 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
               variant="outline"
               size="sm"
               onClick={() => window.open(exportedSheetUrl, "_blank")}
-              onClick={() => window.open(exportedSheetUrl, '_blank')}
               className="flex-1"
             >
               Open Sheet
             </Button>
             <Button variant="outline" size="sm" onClick={handleReset}>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleReset}
-            >
               Export Another
             </Button>
           </div>
         </div>
       )}
 
-      {/* Error State */}
       {exportState === "error" && errorMessage && (
-      {exportState === 'error' && errorMessage && (
         <div className="space-y-3 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
           <div className="flex items-start gap-2">
             <XCircle className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5" />
@@ -508,11 +372,6 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
             </div>
           </div>
           <Button variant="outline" size="sm" onClick={handleReset}>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleReset}
-          >
             Try Again
           </Button>
         </div>
