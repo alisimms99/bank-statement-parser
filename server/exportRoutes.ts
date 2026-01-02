@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
 import type { NormalizedTransaction } from "@shared/types";
@@ -26,6 +26,71 @@ const STORE_TTL_MS = 60 * 60 * 1000;
 
 // Cleanup interval: every 10 minutes
 const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+
+const SHEETS_TRANSACTIONS_SHEET_TITLE = "Transactions";
+const SHEETS_HASHES_SHEET_TITLE = "Transaction Hashes";
+
+function toSheetsRow(tx: CanonicalTransaction): string[] {
+  return [
+    tx.date || "",
+    tx.description || "",
+    tx.payee || "",
+    tx.debit?.toString() || "",
+    tx.credit?.toString() || "",
+    tx.balance?.toString() || "",
+    tx.account_id || "",
+    tx.source_bank || "",
+    tx.statement_period?.start || "",
+    tx.statement_period?.end || "",
+  ];
+}
+
+function computeTransactionHash(tx: CanonicalTransaction): string {
+  // Hash exactly what we write to Sheets, so the dedupe key matches the sheet rows.
+  const stable = toSheetsRow(tx).join("\u001f");
+  return createHash("sha256").update(stable, "utf8").digest("hex");
+}
+
+function asSheetCellString(value: string) {
+  return { userEnteredValue: { stringValue: value } };
+}
+
+function asRowData(values: string[]) {
+  return { values: values.map(asSheetCellString) };
+}
+
+async function fetchJsonWithAuth(
+  url: string,
+  accessToken: string,
+  init: RequestInit
+): Promise<any> {
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      ...(init.headers ?? {}),
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  const text = await res.text();
+  const json = text.length > 0 ? JSON.parse(text) : null;
+
+  if (!res.ok) {
+    throw new Error(json?.error?.message || json?.message || `Request failed: ${res.status}`);
+  }
+
+  return json;
+}
+
+function pickUnusedSheetId(used: Set<number>): number {
+  // Sheets uses 32-bit signed ints for sheetId.
+  for (let attempts = 0; attempts < 20; attempts++) {
+    const candidate = Math.floor(Math.random() * 2_000_000_000) + 1;
+    if (!used.has(candidate)) return candidate;
+  }
+  // Fallback: extremely unlikely to collide after 20 attempts.
+  return Date.now() % 2_000_000_000;
+}
 
 /**
  * Purge expired entries from the store
@@ -492,7 +557,17 @@ export function registerExportRoutes(app: Express): void {
    */
   app.post("/api/export/sheets", requireAuth, async (req, res) => {
     try {
-      const { transactions, folderId, sheetName } = req.body;
+      const {
+        transactions,
+        folderId,
+        sheetName,
+        spreadsheetId: providedSpreadsheetId,
+        mode,
+      } = req.body;
+
+      const isAppendMode =
+        (typeof mode === "string" && mode.toLowerCase() === "append") ||
+        (typeof providedSpreadsheetId === "string" && providedSpreadsheetId.length > 0);
 
       if (!Array.isArray(transactions) || transactions.length === 0) {
         return res.status(400).json({
@@ -501,17 +576,24 @@ export function registerExportRoutes(app: Express): void {
         });
       }
 
-      if (!folderId || typeof folderId !== "string") {
+      if (!isAppendMode && (!folderId || typeof folderId !== "string")) {
         return res.status(400).json({
           error: "Invalid request",
           message: "folderId is required",
         });
       }
 
-      if (!sheetName || typeof sheetName !== "string") {
+      if (!isAppendMode && (!sheetName || typeof sheetName !== "string")) {
         return res.status(400).json({
           error: "Invalid request",
           message: "sheetName is required",
+        });
+      }
+
+      if (isAppendMode && (!providedSpreadsheetId || typeof providedSpreadsheetId !== "string")) {
+        return res.status(400).json({
+          error: "Invalid request",
+          message: "spreadsheetId is required for append mode",
         });
       }
 
@@ -533,57 +615,9 @@ export function registerExportRoutes(app: Express): void {
         return res.status(401).json({ error: "No access token available. Please sign in again." });
       }
 
-      // Initialize Google Sheets API
+      // Initialize Google Sheets API (kept for parity with other Google flows)
       const oauth2Client = new OAuth2Client();
-      oauth2Client.setCredentials({
-        access_token: session.accessToken,
-      });
-
-      // Create a new spreadsheet in the specified folder
-      const createResponse = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${session.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          properties: {
-            title: sheetName,
-          },
-          sheets: [
-            {
-              properties: {
-                title: "Transactions",
-              },
-            },
-          ],
-        }),
-      });
-
-      if (!createResponse.ok) {
-        const error = await createResponse.json();
-        throw new Error(error.error?.message || "Failed to create spreadsheet");
-      }
-
-      const spreadsheet = await createResponse.json();
-      const spreadsheetId = spreadsheet.spreadsheetId;
-      const sheetUrl = spreadsheet.spreadsheetUrl;
-
-      // Move the spreadsheet to the specified folder using Drive API
-      const moveResponse = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${folderId}&removeParents=root`,
-        {
-          method: "PATCH",
-          headers: {
-            "Authorization": `Bearer ${session.accessToken}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      if (!moveResponse.ok) {
-        console.warn("Failed to move spreadsheet to folder. The spreadsheet was created in the root folder instead. Continuing with export.");
-      }
+      oauth2Client.setCredentials({ access_token: session.accessToken });
 
       // Prepare data for the spreadsheet
       const headers = [
@@ -599,107 +633,290 @@ export function registerExportRoutes(app: Express): void {
         "Statement Period End",
       ];
 
-      const rows = transactions.map((tx: CanonicalTransaction) => [
-        tx.date || "",
-        tx.description || "",
-        tx.payee || "",
-        tx.debit?.toString() || "",
-        tx.credit?.toString() || "",
-        tx.balance?.toString() || "",
-        tx.account_id || "",
-        tx.source_bank || "",
-        tx.statement_period?.start || "",
-        tx.statement_period?.end || "",
-      ]);
+      const txRows = transactions.map(toSheetsRow);
+      const txHashes = transactions.map(computeTransactionHash);
 
-      const allData = [headers, ...rows];
+      let spreadsheetId: string;
+      let sheetUrl: string;
+      let appendedCount = transactions.length;
+      let skippedDuplicateCount = 0;
 
-      // Update the spreadsheet with transaction data
-      const updateResponse = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Transactions!A1:append?valueInputOption=RAW`,
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${session.accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            values: allData,
-          }),
+      if (!isAppendMode) {
+        // Create a new spreadsheet in the specified folder
+        const created = await fetchJsonWithAuth(
+          "https://sheets.googleapis.com/v4/spreadsheets",
+          session.accessToken,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              properties: { title: sheetName },
+              sheets: [{ properties: { title: SHEETS_TRANSACTIONS_SHEET_TITLE } }],
+            }),
+          }
+        );
+
+        spreadsheetId = created.spreadsheetId;
+        sheetUrl = created.spreadsheetUrl;
+
+        const transactionsSheetId: number | undefined =
+          created?.sheets?.[0]?.properties?.sheetId ?? 0;
+
+        // Move the spreadsheet to the specified folder using Drive API
+        try {
+          const moveRes = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${folderId}&removeParents=root`,
+            {
+              method: "PATCH",
+              headers: {
+                Authorization: `Bearer ${session.accessToken}`,
+                "Content-Type": "application/json",
+              },
+            }
+          );
+          if (!moveRes.ok) {
+            console.warn(
+              "Failed to move spreadsheet to folder. The spreadsheet was created in the root folder instead. Continuing with export."
+            );
+          }
+        } catch {
+          // Non-fatal: the sheet exists and can still be written.
+          console.warn(
+            "Failed to move spreadsheet to folder due to network error. Continuing with export."
+          );
         }
-      );
 
-      if (!updateResponse.ok) {
-        const error = await updateResponse.json();
-        throw new Error(error.error?.message || "Failed to write data to spreadsheet");
+        // Atomically write transactions + hashes (and do header formatting) in one batchUpdate.
+        // This prevents the "data appended but hashes missing" partial-success state.
+        const hashesSheetId = pickUnusedSheetId(new Set([transactionsSheetId]));
+        const batchRequests: any[] = [
+          {
+            addSheet: {
+              properties: {
+                sheetId: hashesSheetId,
+                title: SHEETS_HASHES_SHEET_TITLE,
+                hidden: true,
+              },
+            },
+          },
+          {
+            updateCells: {
+              start: { sheetId: transactionsSheetId, rowIndex: 0, columnIndex: 0 },
+              rows: [asRowData(headers), ...txRows.map(asRowData)],
+              fields: "userEnteredValue",
+            },
+          },
+          {
+            updateCells: {
+              start: { sheetId: hashesSheetId, rowIndex: 0, columnIndex: 0 },
+              rows: [asRowData(["hash"]), ...txHashes.map((h) => asRowData([h]))],
+              fields: "userEnteredValue",
+            },
+          },
+          {
+            repeatCell: {
+              range: { sheetId: transactionsSheetId, startRowIndex: 0, endRowIndex: 1 },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                  textFormat: {
+                    foregroundColor: { red: 1.0, green: 1.0, blue: 1.0 },
+                    bold: true,
+                  },
+                },
+              },
+              fields: "userEnteredFormat(backgroundColor,textFormat)",
+            },
+          },
+          {
+            autoResizeDimensions: {
+              dimensions: {
+                sheetId: transactionsSheetId,
+                dimension: "COLUMNS",
+                startIndex: 0,
+                endIndex: headers.length,
+              },
+            },
+          },
+        ];
+
+        await fetchJsonWithAuth(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+          session.accessToken,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ requests: batchRequests }),
+          }
+        );
+      } else {
+        spreadsheetId = providedSpreadsheetId;
+        const spreadsheet = await fetchJsonWithAuth(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=spreadsheetUrl,sheets.properties`,
+          session.accessToken,
+          { method: "GET" }
+        );
+
+        sheetUrl =
+          spreadsheet?.spreadsheetUrl ||
+          `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+
+        const sheets: Array<{ properties: { sheetId: number; title: string } }> =
+          spreadsheet?.sheets ?? [];
+        const usedSheetIds = new Set<number>(sheets.map((s) => s.properties.sheetId));
+
+        let transactionsSheet = sheets.find(
+          (s) => s.properties.title === SHEETS_TRANSACTIONS_SHEET_TITLE
+        );
+        let hashesSheet = sheets.find((s) => s.properties.title === SHEETS_HASHES_SHEET_TITLE);
+
+        const preRequests: any[] = [];
+        if (!transactionsSheet) {
+          const newId = pickUnusedSheetId(usedSheetIds);
+          usedSheetIds.add(newId);
+          preRequests.push({
+            addSheet: { properties: { sheetId: newId, title: SHEETS_TRANSACTIONS_SHEET_TITLE } },
+          });
+          preRequests.push({
+            updateCells: {
+              start: { sheetId: newId, rowIndex: 0, columnIndex: 0 },
+              rows: [asRowData(headers)],
+              fields: "userEnteredValue",
+            },
+          });
+          preRequests.push({
+            repeatCell: {
+              range: { sheetId: newId, startRowIndex: 0, endRowIndex: 1 },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                  textFormat: {
+                    foregroundColor: { red: 1.0, green: 1.0, blue: 1.0 },
+                    bold: true,
+                  },
+                },
+              },
+              fields: "userEnteredFormat(backgroundColor,textFormat)",
+            },
+          });
+          transactionsSheet = { properties: { sheetId: newId, title: SHEETS_TRANSACTIONS_SHEET_TITLE } };
+        }
+
+        if (!hashesSheet) {
+          const newId = pickUnusedSheetId(usedSheetIds);
+          usedSheetIds.add(newId);
+          preRequests.push({
+            addSheet: {
+              properties: { sheetId: newId, title: SHEETS_HASHES_SHEET_TITLE, hidden: true },
+            },
+          });
+          preRequests.push({
+            updateCells: {
+              start: { sheetId: newId, rowIndex: 0, columnIndex: 0 },
+              rows: [asRowData(["hash"])],
+              fields: "userEnteredValue",
+            },
+          });
+          hashesSheet = { properties: { sheetId: newId, title: SHEETS_HASHES_SHEET_TITLE } };
+        }
+
+        if (preRequests.length > 0) {
+          await fetchJsonWithAuth(
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+            session.accessToken,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ requests: preRequests }),
+            }
+          );
+        }
+
+        // Load existing hashes to prevent duplicates.
+        // Note: we keep this simple; if this grows huge, we should paginate via the Sheets API / a DB.
+        let existingHashes = new Set<string>();
+        try {
+          const hashesValues = await fetchJsonWithAuth(
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+              `${SHEETS_HASHES_SHEET_TITLE}!A:A`
+            )}`,
+            session.accessToken,
+            { method: "GET" }
+          );
+          const values: string[][] = hashesValues?.values ?? [];
+          for (const [v] of values) {
+            if (!v) continue;
+            if (v === "hash") continue;
+            existingHashes.add(v);
+          }
+        } catch {
+          // If we can't read hashes (permissions / transient), fail closed to avoid duplicating rows.
+          return res.status(503).json({
+            error: "Failed to read existing hashes",
+            message:
+              "Unable to read the Transaction Hashes sheet to safely dedupe. Please retry.",
+          });
+        }
+
+        const rowsToAppend: string[][] = [];
+        const hashesToAppend: string[] = [];
+        for (let i = 0; i < transactions.length; i++) {
+          const hash = txHashes[i]!;
+          if (existingHashes.has(hash)) {
+            skippedDuplicateCount++;
+            continue;
+          }
+          existingHashes.add(hash);
+          rowsToAppend.push(txRows[i]!);
+          hashesToAppend.push(hash);
+        }
+
+        appendedCount = rowsToAppend.length;
+
+        if (rowsToAppend.length > 0) {
+          const appendRequests: any[] = [
+            {
+              appendCells: {
+                sheetId: transactionsSheet!.properties.sheetId,
+                rows: rowsToAppend.map(asRowData),
+                fields: "userEnteredValue",
+              },
+            },
+            {
+              appendCells: {
+                sheetId: hashesSheet!.properties.sheetId,
+                rows: hashesToAppend.map((h) => asRowData([h])),
+                fields: "userEnteredValue",
+              },
+            },
+          ];
+
+          await fetchJsonWithAuth(
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+            session.accessToken,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ requests: appendRequests }),
+            }
+          );
+        }
       }
-
-      // Format the header row
-      await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${session.accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            requests: [
-              {
-                repeatCell: {
-                  range: {
-                    sheetId: 0,
-                    startRowIndex: 0,
-                    endRowIndex: 1,
-                  },
-                  cell: {
-                    userEnteredFormat: {
-                      backgroundColor: {
-                        red: 0.2,
-                        green: 0.2,
-                        blue: 0.2,
-                      },
-                      textFormat: {
-                        foregroundColor: {
-                          red: 1.0,
-                          green: 1.0,
-                          blue: 1.0,
-                        },
-                        bold: true,
-                      },
-                    },
-                  },
-                  fields: "userEnteredFormat(backgroundColor,textFormat)",
-                },
-              },
-              {
-                autoResizeDimensions: {
-                  dimensions: {
-                    sheetId: 0,
-                    dimension: "COLUMNS",
-                    startIndex: 0,
-                    endIndex: headers.length,
-                  },
-                },
-              },
-            ],
-          }),
-        }
-      );
 
       logEvent("export_sheets", {
         exportId: spreadsheetId,
         success: true,
         status: 200,
-        transactionCount: transactions.length,
-        sheetName,
-        folderId,
+        transactionCount: appendedCount,
+        skippedDuplicateCount,
+        sheetName: isAppendMode ? undefined : sheetName,
+        folderId: isAppendMode ? undefined : folderId,
       });
 
       recordExportEvent({
         exportId: spreadsheetId,
         format: "sheets" as ExportFormat,
-        transactionCount: transactions.length,
+        transactionCount: appendedCount,
         timestamp: Date.now(),
         success: true,
       });
@@ -708,7 +925,8 @@ export function registerExportRoutes(app: Express): void {
         success: true,
         spreadsheetId,
         sheetUrl,
-        transactionCount: transactions.length,
+        appendedCount,
+        skippedDuplicateCount,
       });
     } catch (error) {
       logEvent(
