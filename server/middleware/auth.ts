@@ -217,7 +217,7 @@ export async function optionalAuth(
   }
 }
 
-export async function createSessionToken(payload: SessionPayload): Promise<string> {
+export async function createSessionToken(payload: SessionPayload & { accessToken?: string; refreshToken?: string }): Promise<string> {
   const secretKey = getSessionSecret();
   const issuedAt = Date.now();
   const expiresInMs = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -239,6 +239,9 @@ export async function createSessionToken(payload: SessionPayload): Promise<strin
   }
 
   return new SignJWT(claims)
+    accessToken: payload.accessToken ?? "",
+    refreshToken: payload.refreshToken ?? "",
+  })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setExpirationTime(expirationSeconds)
     .setIssuedAt(Math.floor(issuedAt / 1000))

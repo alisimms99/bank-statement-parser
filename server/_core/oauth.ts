@@ -297,4 +297,44 @@ export function registerOAuthRoutes(app: Express) {
       res.status(500).json({ error: "Failed to get user info" });
     }
   });
+
+  // GET /api/auth/token - Return access token for Google APIs
+  app.get("/api/auth/token", async (req: Request, res: Response) => {
+    try {
+      const { verifySessionToken } = await import("../middleware/auth");
+      const { parse: parseCookie } = await import("cookie");
+      
+      const cookieHeader = req.headers.cookie;
+      if (!cookieHeader) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+
+      const cookies = parseCookie(cookieHeader);
+      const sessionToken = cookies[COOKIE_NAME];
+
+      if (!sessionToken) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+
+      const session = await verifySessionToken(sessionToken);
+      if (!session) {
+        res.status(401).json({ error: "Invalid session" });
+        return;
+      }
+
+      if (!session.accessToken) {
+        res.status(401).json({ error: "No access token available. Please sign in again." });
+        return;
+      }
+
+      res.json({
+        accessToken: session.accessToken,
+      });
+    } catch (error) {
+      console.error("[OAuth] Get access token failed:", error);
+      res.status(500).json({ error: "Failed to get access token" });
+    }
+  });
 }
