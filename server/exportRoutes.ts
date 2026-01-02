@@ -492,7 +492,11 @@ export function registerExportRoutes(app: Express): void {
    */
   app.post("/api/export/sheets", requireAuth, async (req, res) => {
     try {
-      const { transactions, folderId, sheetName } = req.body;
+      const { transactions, folderId, sheetName, sheetTabName } = req.body;
+      const finalSheetTabName =
+        typeof sheetTabName === "string" && sheetTabName.trim() ? sheetTabName.trim() : "Transactions";
+
+      const escapeSheetTabNameForA1 = (tabName: string) => tabName.replace(/'/g, "''");
 
       if (!Array.isArray(transactions) || transactions.length === 0) {
         return res.status(400).json({
@@ -553,7 +557,7 @@ export function registerExportRoutes(app: Express): void {
           sheets: [
             {
               properties: {
-                title: "Transactions",
+                title: finalSheetTabName,
               },
             },
           ],
@@ -615,8 +619,9 @@ export function registerExportRoutes(app: Express): void {
       const allData = [headers, ...rows];
 
       // Update the spreadsheet with transaction data
+      const range = `'${escapeSheetTabNameForA1(finalSheetTabName)}'!A1`;
       const updateResponse = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Transactions!A1:append?valueInputOption=RAW`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW`,
         {
           method: "POST",
           headers: {
@@ -693,6 +698,7 @@ export function registerExportRoutes(app: Express): void {
         status: 200,
         transactionCount: transactions.length,
         sheetName,
+        sheetTabName: finalSheetTabName,
         folderId,
       });
 
