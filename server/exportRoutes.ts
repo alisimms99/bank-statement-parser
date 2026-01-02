@@ -1,5 +1,12 @@
 import type { Express } from "express";
 import { randomUUID } from "crypto";
+import {
+  hashTransaction,
+  getExistingHashes,
+  ensureHashesSheet,
+  appendHashes,
+  filterDuplicates,
+} from "./sheetsExport";
 import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
 import type { NormalizedTransaction } from "@shared/types";
@@ -489,10 +496,11 @@ export function registerExportRoutes(app: Express): void {
   /**
    * POST /api/export/sheets
    * Export transactions to Google Sheets
+   * Supports both 'create' and 'append' modes
    */
   app.post("/api/export/sheets", requireAuth, async (req, res) => {
     try {
-      const { transactions, folderId, sheetName } = req.body;
+      const { transactions, folderId, sheetName, mode = 'create', spreadsheetId: existingSpreadsheetId, sheetTabName = 'Transactions' } = req.body;
 
       if (!Array.isArray(transactions) || transactions.length === 0) {
         return res.status(400).json({
@@ -501,17 +509,35 @@ export function registerExportRoutes(app: Express): void {
         });
       }
 
-      if (!folderId || typeof folderId !== "string") {
+      // folderId is only required for 'create' mode
+      if (mode === 'create' && (!folderId || typeof folderId !== "string")) {
         return res.status(400).json({
           error: "Invalid request",
-          message: "folderId is required",
+          message: "folderId is required for create mode",
         });
       }
 
-      if (!sheetName || typeof sheetName !== "string") {
+      // spreadsheetId is required for 'append' mode
+      if (mode === 'append' && (!existingSpreadsheetId || typeof existingSpreadsheetId !== "string")) {
         return res.status(400).json({
           error: "Invalid request",
-          message: "sheetName is required",
+          message: "spreadsheetId is required for append mode",
+        });
+      }
+
+      // Validate mode
+      if (mode !== 'create' && mode !== 'append') {
+        return res.status(400).json({
+          error: "Invalid request",
+          message: "mode must be 'create' or 'append'",
+        });
+      }
+
+      // sheetName is only required for 'create' mode
+      if (mode === 'create' && (!sheetName || typeof sheetName !== "string")) {
+        return res.status(400).json({
+          error: "Invalid request",
+          message: "sheetName is required for create mode",
         });
       }
 
@@ -539,7 +565,119 @@ export function registerExportRoutes(app: Express): void {
         access_token: session.accessToken,
       });
 
-      // Create a new spreadsheet in the specified folder
+      let spreadsheetId: string;
+      let sheetUrl: string;
+      let rowsAdded = 0;
+      let rowsSkipped = 0;
+
+      if (mode === 'append') {
+        // APPEND MODE: Add transactions to existing spreadsheet
+        spreadsheetId = existingSpreadsheetId!;
+
+        // Get the spreadsheet URL
+        const metadataResponse = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
+          {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${session.accessToken}`,
+            },
+          }
+        );
+
+        if (!metadataResponse.ok) {
+          throw new Error("Failed to access spreadsheet. Please check the spreadsheet ID and permissions.");
+        }
+
+        const metadata = await metadataResponse.json();
+        sheetUrl = metadata.spreadsheetUrl;
+
+        // Ensure Hashes sheet exists
+        await ensureHashesSheet(spreadsheetId, session.accessToken);
+
+        // Get existing hashes for duplicate detection
+        const existingHashes = await getExistingHashes(spreadsheetId, session.accessToken);
+
+        // Filter out duplicates
+        const { uniqueTransactions, duplicateCount, newHashes } = filterDuplicates(
+          transactions,
+          existingHashes
+        );
+
+        rowsSkipped = duplicateCount;
+
+        if (uniqueTransactions.length > 0) {
+          // Prepare data for the spreadsheet
+          const rows = uniqueTransactions.map((tx: CanonicalTransaction) => [
+            tx.date || "",
+            tx.description || "",
+            tx.payee || "",
+            tx.debit?.toString() || "",
+            tx.credit?.toString() || "",
+            tx.balance?.toString() || "",
+            tx.account_id || "",
+            tx.source_bank || "",
+            tx.statement_period?.start || "",
+            tx.statement_period?.end || "",
+          ]);
+
+          // Append transactions to the specified sheet tab
+          const appendResponse = await fetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetTabName)}!A:A:append?valueInputOption=RAW`,
+            {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${session.accessToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                values: rows,
+              }),
+            }
+          );
+
+          if (!appendResponse.ok) {
+            const error = await appendResponse.json();
+            throw new Error(error.error?.message || "Failed to append data to spreadsheet");
+          }
+
+          // Append new hashes to the Hashes sheet
+          await appendHashes(spreadsheetId, session.accessToken, newHashes);
+
+          rowsAdded = uniqueTransactions.length;
+        }
+
+        logEvent("export_sheets", {
+          exportId: spreadsheetId,
+          success: true,
+          status: 200,
+          mode: 'append',
+          transactionCount: transactions.length,
+          rowsAdded,
+          rowsSkipped,
+          sheetTabName,
+        });
+
+        recordExportEvent({
+          exportId: spreadsheetId,
+          format: "sheets" as ExportFormat,
+          transactionCount: rowsAdded,
+          timestamp: Date.now(),
+          success: true,
+        });
+
+        return res.json({
+          success: true,
+          spreadsheetId,
+          sheetUrl,
+          mode: 'append',
+          rowsAdded,
+          rowsSkipped,
+          transactionCount: transactions.length,
+        });
+      }
+
+      // CREATE MODE: Create a new spreadsheet in the specified folder
       const createResponse = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
         method: "POST",
         headers: {
@@ -566,8 +704,8 @@ export function registerExportRoutes(app: Express): void {
       }
 
       const spreadsheet = await createResponse.json();
-      const spreadsheetId = spreadsheet.spreadsheetId;
-      const sheetUrl = spreadsheet.spreadsheetUrl;
+      spreadsheetId = spreadsheet.spreadsheetId;
+      sheetUrl = spreadsheet.spreadsheetUrl;
 
       // Move the spreadsheet to the specified folder using Drive API
       const moveResponse = await fetch(
@@ -687,11 +825,20 @@ export function registerExportRoutes(app: Express): void {
         }
       );
 
+      // Create Hashes sheet and store initial hashes for duplicate detection
+      await ensureHashesSheet(spreadsheetId, session.accessToken);
+      const initialHashes = transactions.map(tx => hashTransaction(tx));
+      await appendHashes(spreadsheetId, session.accessToken, initialHashes);
+
+      rowsAdded = transactions.length;
+
       logEvent("export_sheets", {
         exportId: spreadsheetId,
         success: true,
         status: 200,
+        mode: 'create',
         transactionCount: transactions.length,
+        rowsAdded,
         sheetName,
         folderId,
       });
@@ -708,6 +855,9 @@ export function registerExportRoutes(app: Express): void {
         success: true,
         spreadsheetId,
         sheetUrl,
+        mode: 'create',
+        rowsAdded,
+        rowsSkipped: 0,
         transactionCount: transactions.length,
       });
     } catch (error) {
