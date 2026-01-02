@@ -323,8 +323,11 @@ export function registerExportRoutes(app: Express): void {
    * Export transactions as PDF from request body (for accumulated transactions)
    */
   app.post("/api/export/pdf", requireAuth, (req, res) => {
+    // Keep a reference for metrics in the catch block.
+    // If we pass validation, `transactions` is known-good and `length` is accurate.
+    let transactions: unknown;
     try {
-      const { transactions } = req.body;
+      ({ transactions } = req.body ?? {});
       
       if (!Array.isArray(transactions) || transactions.length === 0) {
         return res.status(400).json({ 
@@ -367,7 +370,7 @@ export function registerExportRoutes(app: Express): void {
       recordExportEvent({
         exportId: "combined",
         format: "pdf",
-        transactionCount: 0,
+        transactionCount: Array.isArray(transactions) ? transactions.length : 0,
         timestamp: Date.now(),
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
