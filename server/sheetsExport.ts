@@ -1,4 +1,5 @@
-import { google, sheets_v4 } from "googleapis";
+import { google } from "googleapis";
+import type { drive_v3, sheets_v4 } from "googleapis";
 import type { CanonicalTransaction } from "@shared/transactions";
 import { getDocumentAiConfig } from "./_core/env";
 
@@ -6,6 +7,11 @@ export interface SheetsExportParams {
   transactions: CanonicalTransaction[];
   sheetName: string;
   folderId?: string | null;
+  /**
+   * Email of the authenticated user who should have access to the exported file.
+   * The spreadsheet is created by a service account, so we must explicitly share it.
+   */
+  userEmail: string;
 }
 
 export interface SheetsExportResult {
@@ -40,8 +46,6 @@ export class SheetsExportError extends Error {
       cause?: unknown;
     }
   ) {
-    // Preserve the root cause when supported (Node 16+/modern runtimes)
-    // while still attaching useful metadata for callers/tests.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     super(message, opts.cause ? ({ cause: opts.cause } as any) : undefined);
     this.name = "SheetsExportError";
@@ -50,6 +54,15 @@ export class SheetsExportError extends Error {
     this.spreadsheetUrl = opts.spreadsheetUrl;
     this.cleanupError = opts.cleanupError;
   }
+}
+
+function extractGoogleApiErrorMessage(err: unknown, fallback: string): string {
+  if (!err) return fallback;
+  const asAny = err as unknown as { errors?: Array<{ message?: string }> };
+  const nested = asAny.errors?.[0]?.message;
+  if (nested && typeof nested === "string") return nested;
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
 }
 
 function resolveServiceAccountCredentials(): Record<string, unknown> {
@@ -64,7 +77,10 @@ function resolveServiceAccountCredentials(): Record<string, unknown> {
   return credentials;
 }
 
-async function getGoogleClients() {
+async function getGoogleClients(): Promise<{
+  sheets: sheets_v4.Sheets;
+  drive: drive_v3.Drive;
+}> {
   const credentials = resolveServiceAccountCredentials();
   const scopes = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -76,10 +92,44 @@ async function getGoogleClients() {
     credentials: credentials as any,
     scopes,
   });
-  // Pass GoogleAuth instance directly to clients for proper typing
   const sheets = google.sheets({ version: "v4", auth });
   const drive = google.drive({ version: "v3", auth });
   return { sheets, drive };
+}
+
+async function shareFileWithUser(params: {
+  drive: drive_v3.Drive;
+  fileId: string;
+  userEmail: string;
+}) {
+  const { drive, fileId, userEmail } = params;
+  if (!userEmail || typeof userEmail !== "string") {
+    throw new Error("userEmail is required to share the exported spreadsheet");
+  }
+
+  try {
+    await drive.permissions.create({
+      fileId,
+      requestBody: {
+        type: "user",
+        role: "writer",
+        emailAddress: userEmail,
+      },
+      sendNotificationEmail: false,
+      fields: "id",
+    });
+  } catch (err) {
+    const message = extractGoogleApiErrorMessage(
+      err,
+      "Failed to share spreadsheet with user"
+    );
+    throw new Error(`Drive permission grant failed: ${message}`);
+  }
+}
+
+function formatISODate(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.split("T")[0];
 }
 
 function toAmount(tx: CanonicalTransaction): number {
@@ -93,35 +143,25 @@ function toAmount(tx: CanonicalTransaction): number {
 
 function buildSheetValues(transactions: CanonicalTransaction[]) {
   const headers = ["Date", "Description", "Payee", "Amount", "Balance"];
-  const rows = transactions.map(tx => [
-    tx.date ?? "",
+  const rows = transactions.map((tx) => [
+    // Keep consistent with CSV export: fall back to posted_date when date is missing.
+    formatISODate(tx.date ?? tx.posted_date),
     tx.description ?? "",
     tx.payee ?? "",
     toAmount(tx),
     tx.balance ?? "",
   ]);
-  return {
-    headers,
-    rows,
-  };
-}
-
-function extractGoogleApiErrorMessage(err: unknown, fallback: string): string {
-  if (!err) return fallback;
-  const asAny = err as unknown as { errors?: Array<{ message?: string }> };
-  const nested = asAny.errors?.[0]?.message;
-  if (nested && typeof nested === "string") return nested;
-  if (err instanceof Error && err.message) return err.message;
-  return fallback;
+  return { headers, rows };
 }
 
 export async function exportTransactionsToGoogleSheet(
   params: SheetsExportParams
 ): Promise<SheetsExportResult> {
-  const { transactions, sheetName, folderId } = params;
+  const { transactions, sheetName, folderId, userEmail } = params;
   if (!Array.isArray(transactions) || transactions.length === 0) {
     throw new Error("transactions array is required and must not be empty");
   }
+
   const safeSheetName = (sheetName || "Transactions Export").slice(0, 100);
 
   const { sheets, drive } = await getGoogleClients();
@@ -129,16 +169,8 @@ export async function exportTransactionsToGoogleSheet(
   // 1) Create spreadsheet
   const createRes = await sheets.spreadsheets.create({
     requestBody: {
-      properties: {
-        title: safeSheetName,
-      },
-      sheets: [
-        {
-          properties: {
-            title: "Transactions",
-          },
-        },
-      ],
+      properties: { title: safeSheetName },
+      sheets: [{ properties: { title: "Transactions" } }],
     },
     fields: "spreadsheetId,spreadsheetUrl,sheets(properties(sheetId,title))",
   });
@@ -147,9 +179,13 @@ export async function exportTransactionsToGoogleSheet(
   const spreadsheetUrl =
     createRes.data.spreadsheetUrl ||
     `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
-  const sheetId: number | undefined =
+  const sheetId =
     createRes.data.sheets?.[0]?.properties?.sheetId ?? undefined;
-  const sheetTitle = createRes.data.sheets?.[0]?.properties?.title ?? "Sheet1";
+  const sheetTitle =
+    createRes.data.sheets?.[0]?.properties?.title ?? "Sheet1";
+
+  // 1b) Ensure the authenticated user can access the file.
+  await shareFileWithUser({ drive, fileId: spreadsheetId, userEmail });
 
   // 2) Write header + rows
   const { headers, rows } = buildSheetValues(transactions);
@@ -157,9 +193,7 @@ export async function exportTransactionsToGoogleSheet(
     spreadsheetId,
     range: `${sheetTitle}!A1:E${rows.length + 1}`,
     valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: [headers, ...rows],
-    },
+    requestBody: { values: [headers, ...rows] },
   });
 
   // 3) Format: freeze header, bold header, date/currency formats, autoresize
@@ -171,9 +205,7 @@ export async function exportTransactionsToGoogleSheet(
       updateSheetProperties: {
         properties: {
           sheetId,
-          gridProperties: {
-            frozenRowCount: 1,
-          },
+          gridProperties: { frozenRowCount: 1 },
         },
         fields: "gridProperties.frozenRowCount",
       },
@@ -182,22 +214,14 @@ export async function exportTransactionsToGoogleSheet(
     // Bold header row
     requests.push({
       repeatCell: {
-        range: {
-          sheetId,
-          startRowIndex: 0,
-          endRowIndex: 1,
-        },
-        cell: {
-          userEnteredFormat: {
-            textFormat: { bold: true },
-          },
-        },
+        range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+        cell: { userEnteredFormat: { textFormat: { bold: true } } },
         fields: "userEnteredFormat.textFormat.bold",
       },
     });
 
-    // Date format for column A (index 0), rows 2..N (skip header)
     if (rows.length > 0) {
+      // Date format for column A (index 0), rows 2..N (skip header)
       requests.push({
         repeatCell: {
           range: {
@@ -209,10 +233,7 @@ export async function exportTransactionsToGoogleSheet(
           },
           cell: {
             userEnteredFormat: {
-              numberFormat: {
-                type: "DATE",
-                pattern: "yyyy-mm-dd",
-              },
+              numberFormat: { type: "DATE", pattern: "yyyy-mm-dd" },
             },
           },
           fields: "userEnteredFormat.numberFormat",
@@ -269,6 +290,7 @@ export async function exportTransactionsToGoogleSheet(
         supportsAllDrives: true,
       });
       const previousParents = getRes.data.parents?.join(",") ?? "";
+
       await drive.files.update({
         fileId: spreadsheetId,
         addParents: folderId,
@@ -285,7 +307,7 @@ export async function exportTransactionsToGoogleSheet(
       // Best-effort cleanup to avoid orphaning the created sheet in Drive root.
       let cleanupErr: unknown | undefined;
       try {
-        await drive.files.delete({ 
+        await drive.files.delete({
           fileId: spreadsheetId,
           supportsAllDrives: true,
         });
@@ -305,24 +327,19 @@ export async function exportTransactionsToGoogleSheet(
         );
       }
 
-      {
-        throw new SheetsExportError(
-          `Drive move failed: ${message}. The spreadsheet was created successfully and can be accessed at: ${spreadsheetUrl}`,
-          {
-            kind: "drive_move_failed_spreadsheet_retained",
-            spreadsheetId,
-            spreadsheetUrl,
-            cleanupError: cleanupErr,
-            cause: moveErr,
-          }
-        );
-      }
+      throw new SheetsExportError(
+        `Drive move failed: ${message}. The spreadsheet was created successfully and can be accessed at: ${spreadsheetUrl}`,
+        {
+          kind: "drive_move_failed_spreadsheet_retained",
+          spreadsheetId,
+          spreadsheetUrl,
+          cleanupError: cleanupErr,
+          cause: moveErr,
+        }
+      );
     }
   }
 
-  return {
-    spreadsheetId,
-    spreadsheetUrl,
-  };
+  return { spreadsheetId, spreadsheetUrl };
 }
 
