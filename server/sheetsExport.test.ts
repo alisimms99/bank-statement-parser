@@ -13,6 +13,9 @@ const { mockSheets, mockDrive } = vi.hoisted(() => {
   };
 
   const mockDrive = {
+    permissions: {
+      create: vi.fn(),
+    },
     files: {
       get: vi.fn(),
       update: vi.fn(),
@@ -60,7 +63,31 @@ describe("exportTransactionsToGoogleSheet - folder move failure behavior", () =>
     mockSheets.spreadsheets.values.update.mockResolvedValue({});
     mockSheets.spreadsheets.batchUpdate.mockResolvedValue({});
 
+    mockDrive.permissions.create.mockResolvedValue({ data: { id: "perm_1" } });
     mockDrive.files.get.mockResolvedValue({ data: { parents: ["root"] } });
+  });
+
+  it("falls back to posted_date when date is null (matches CSV behavior)", async () => {
+    mockDrive.files.update.mockResolvedValue({});
+
+    await exportTransactionsToGoogleSheet({
+      transactions: [
+        {
+          date: null,
+          posted_date: "2024-01-05",
+          description: "Test",
+          payee: "Payee",
+          credit: 10,
+          debit: 0,
+          balance: 100,
+        } as any,
+      ],
+      sheetName: "Test Export",
+      userEmail: "user@example.com",
+    });
+
+    const call = mockSheets.spreadsheets.values.update.mock.calls[0]?.[0];
+    expect(call.requestBody.values[1][0]).toBe("2024-01-05");
   });
 
   it("deletes created spreadsheet when move fails (no orphan)", async () => {
@@ -81,6 +108,7 @@ describe("exportTransactionsToGoogleSheet - folder move failure behavior", () =>
         ],
         sheetName: "Test Export",
         folderId: "bad_folder",
+        userEmail: "user@example.com",
       })
     ).rejects.toMatchObject({
       name: "SheetsExportError",
@@ -119,6 +147,7 @@ describe("exportTransactionsToGoogleSheet - folder move failure behavior", () =>
         ],
         sheetName: "Test Export",
         folderId: "no_permission",
+        userEmail: "user@example.com",
       });
     } catch (err) {
       thrown = err;
@@ -147,6 +176,7 @@ describe("exportTransactionsToGoogleSheet - folder move failure behavior", () =>
       ],
       sheetName: "Test Export",
       folderId: "shared_drive_folder",
+      userEmail: "user@example.com",
     });
 
     expect(mockDrive.files.get).toHaveBeenCalledWith({
