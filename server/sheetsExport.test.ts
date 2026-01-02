@@ -89,7 +89,15 @@ describe("exportTransactionsToGoogleSheet - folder move failure behavior", () =>
       spreadsheetUrl: "https://docs.google.com/spreadsheets/d/sheet_123",
     });
 
-    expect(mockDrive.files.delete).toHaveBeenCalledWith({ fileId: "sheet_123" });
+    expect(mockDrive.files.get).toHaveBeenCalledWith({
+      fileId: "sheet_123",
+      fields: "parents",
+      supportsAllDrives: true,
+    });
+    expect(mockDrive.files.delete).toHaveBeenCalledWith({ 
+      fileId: "sheet_123",
+      supportsAllDrives: true,
+    });
   });
 
   it("includes spreadsheet URL in error if cleanup fails (caller can still access)", async () => {
@@ -121,6 +129,38 @@ describe("exportTransactionsToGoogleSheet - folder move failure behavior", () =>
     expect(e.kind).toBe("drive_move_failed_spreadsheet_retained");
     expect(e.spreadsheetUrl).toBe("https://docs.google.com/spreadsheets/d/sheet_123");
     expect(e.message).toContain(e.spreadsheetUrl);
+  });
+
+  it("passes supportsAllDrives flag when moving to shared drive folder", async () => {
+    mockDrive.files.update.mockResolvedValue({});
+
+    await exportTransactionsToGoogleSheet({
+      transactions: [
+        {
+          date: "2025-01-01",
+          description: "Test",
+          payee: "Payee",
+          credit: 10,
+          debit: 0,
+          balance: 100,
+        } as any,
+      ],
+      sheetName: "Test Export",
+      folderId: "shared_drive_folder",
+    });
+
+    expect(mockDrive.files.get).toHaveBeenCalledWith({
+      fileId: "sheet_123",
+      fields: "parents",
+      supportsAllDrives: true,
+    });
+    expect(mockDrive.files.update).toHaveBeenCalledWith({
+      fileId: "sheet_123",
+      addParents: "shared_drive_folder",
+      removeParents: "root",
+      fields: "id, parents",
+      supportsAllDrives: true,
+    });
   });
 });
 
