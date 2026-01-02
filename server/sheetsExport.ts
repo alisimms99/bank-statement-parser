@@ -6,6 +6,11 @@ export interface SheetsExportParams {
   transactions: CanonicalTransaction[];
   sheetName: string;
   folderId?: string | null;
+  /**
+   * Email of the authenticated user who should have access to the exported file.
+   * The spreadsheet is created by a service account, so we must explicitly share it.
+   */
+  userEmail: string;
 }
 
 export interface SheetsExportResult {
@@ -42,6 +47,36 @@ async function getGoogleClients() {
   return { sheets, drive };
 }
 
+async function shareFileWithUser(params: {
+  drive: drive_v3.Drive;
+  fileId: string;
+  userEmail: string;
+}) {
+  const { drive, fileId, userEmail } = params;
+  if (!userEmail || typeof userEmail !== "string") {
+    throw new Error("userEmail is required to share the exported spreadsheet");
+  }
+
+  try {
+    await drive.permissions.create({
+      fileId,
+      requestBody: {
+        type: "user",
+        role: "writer",
+        emailAddress: userEmail,
+      },
+      sendNotificationEmail: false,
+      fields: "id",
+    });
+  } catch (err) {
+    const message =
+      (err as any)?.errors?.[0]?.message ||
+      (err as Error)?.message ||
+      "Failed to share spreadsheet with user";
+    throw new Error(`Drive permission grant failed: ${message}`);
+  }
+}
+
 function toAmount(tx: CanonicalTransaction): number {
   const credit = Number(tx.credit || 0);
   const debit = Number(tx.debit || 0);
@@ -69,7 +104,7 @@ function buildSheetValues(transactions: CanonicalTransaction[]) {
 export async function exportTransactionsToGoogleSheet(
   params: SheetsExportParams
 ): Promise<SheetsExportResult> {
-  const { transactions, sheetName, folderId } = params;
+  const { transactions, sheetName, folderId, userEmail } = params;
   if (!Array.isArray(transactions) || transactions.length === 0) {
     throw new Error("transactions array is required and must not be empty");
   }
@@ -100,6 +135,10 @@ export async function exportTransactionsToGoogleSheet(
     `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
   const sheetId: number | undefined = createRes.data.sheets?.[0]?.properties?.sheetId ?? undefined;
   const sheetTitle = createRes.data.sheets?.[0]?.properties?.title ?? "Sheet1";
+
+  // 1b) Ensure the authenticated user can access the file.
+  // Without this, the service account owns the sheet and the user will get "Access denied".
+  await shareFileWithUser({ drive, fileId: spreadsheetId, userEmail });
 
   // 2) Write header + rows
   const { headers, rows } = buildSheetValues(transactions);

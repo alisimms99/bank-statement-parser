@@ -7,6 +7,7 @@ import { recordExportEvent, type ExportFormat } from "./_core/exportMetrics";
 import { logEvent, serializeError } from "./_core/log";
 import { requireAuth } from "./middleware/auth";
 import { exportTransactionsToGoogleSheet } from "./sheetsExport";
+import type { AuthenticatedRequest } from "./middleware/auth";
 import { OAuth2Client } from "google-auth-library";
 import { ENV } from "./_core/env";
 import { verifySessionToken } from "./middleware/auth";
@@ -395,10 +396,16 @@ export function registerExportRoutes(app: Express): void {
         });
       }
 
+      const userEmail = (req as AuthenticatedRequest).user?.email;
+      if (!userEmail) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
       const result = await exportTransactionsToGoogleSheet({
         transactions,
         sheetName: typeof sheetName === "string" && sheetName.trim().length > 0 ? sheetName.trim() : "Transactions Export",
         folderId: typeof folderId === "string" && folderId.trim().length > 0 ? folderId.trim() : undefined,
+        userEmail,
       });
 
       res.status(200).json({
