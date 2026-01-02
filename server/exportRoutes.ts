@@ -681,7 +681,7 @@ export function registerExportRoutes(app: Express): void {
         if (uniqueTransactions.length > 0) {
           // Prepare data for the spreadsheet
           const rows = uniqueTransactions.map((tx: CanonicalTransaction) => [
-            tx.date || "",
+            tx.date ?? tx.posted_date ?? "",
             tx.description || "",
             tx.payee || "",
             tx.debit?.toString() || "",

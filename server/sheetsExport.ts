@@ -1,5 +1,8 @@
 import { createHash } from "crypto";
+import fs from "fs";
 import type { CanonicalTransaction } from "@shared/transactions";
+import { google } from "googleapis";
+import type { drive_v3, sheets_v4 } from "googleapis";
 
 /**
  * Generate a SHA256 hash for a transaction
@@ -212,15 +215,19 @@ export function filterDuplicates(
 
   return { uniqueTransactions, duplicateCount, newHashes };
 }
-import { google } from "googleapis";
-import type { drive_v3, sheets_v4 } from "googleapis";
-import type { CanonicalTransaction } from "@shared/transactions";
-import { getDocumentAiConfig } from "./_core/env";
 
 export interface SheetsExportParams {
   transactions: CanonicalTransaction[];
   sheetName: string;
   folderId?: string | null;
+  /**
+   * Dependency injection for tests. If provided, avoids constructing real Google
+   * API clients (and avoids needing service account credentials in tests).
+   */
+  clients?: {
+    sheets: sheets_v4.Sheets;
+    drive: drive_v3.Drive;
+  };
   /**
    * Email of the authenticated user who should have access to the exported file.
    * The spreadsheet is created by a service account, so we must explicitly share it.
@@ -279,16 +286,58 @@ function extractGoogleApiErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-function resolveServiceAccountCredentials(): Record<string, unknown> {
-  // Reuse service account loader used by Document AI config
-  const docAiConfig = getDocumentAiConfig();
-  const credentials = docAiConfig.credentials;
-  if (!credentials) {
-    throw new Error(
-      "Google service account credentials not configured. Set GCP_SERVICE_ACCOUNT_JSON or GCP_SERVICE_ACCOUNT_PATH."
-    );
+function readEnvOrFile(name: string): string {
+  const direct = process.env[name];
+  if (direct && direct.length > 0) return direct;
+
+  const filePath = process.env[`${name}_FILE`];
+  if (!filePath) return "";
+
+  try {
+    return fs.readFileSync(filePath, "utf8").trim();
+  } catch {
+    return "";
   }
-  return credentials;
+}
+
+function tryParseJsonCredentials(raw: string): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const decoded = Buffer.from(raw, "base64").toString("utf8");
+    return JSON.parse(decoded);
+  } catch {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function resolveServiceAccountCredentials(): Record<string, unknown> {
+  const raw =
+    readEnvOrFile("GCP_SERVICE_ACCOUNT_JSON") ||
+    readEnvOrFile("GCP_DOCUMENTAI_CREDENTIALS"); // legacy env var name
+
+  const parsed = tryParseJsonCredentials(raw);
+  if (parsed) return parsed;
+
+  const serviceAccountPath = process.env.GCP_SERVICE_ACCOUNT_PATH ?? "";
+  if (serviceAccountPath) {
+    try {
+      if (fs.existsSync(serviceAccountPath)) {
+        const content = fs.readFileSync(serviceAccountPath, "utf8");
+        const fromFile = tryParseJsonCredentials(content);
+        if (fromFile) return fromFile;
+      }
+    } catch {
+      // Ignore and fall through to error
+    }
+  }
+
+  throw new Error(
+    "Google service account credentials not configured. Set GCP_SERVICE_ACCOUNT_JSON (or *_FILE) or GCP_SERVICE_ACCOUNT_PATH."
+  );
 }
 
 async function getGoogleClients(): Promise<{
@@ -371,14 +420,14 @@ function buildSheetValues(transactions: CanonicalTransaction[]) {
 export async function exportTransactionsToGoogleSheet(
   params: SheetsExportParams
 ): Promise<SheetsExportResult> {
-  const { transactions, sheetName, folderId, userEmail } = params;
+  const { transactions, sheetName, folderId, userEmail, clients } = params;
   if (!Array.isArray(transactions) || transactions.length === 0) {
     throw new Error("transactions array is required and must not be empty");
   }
 
   const safeSheetName = (sheetName || "Transactions Export").slice(0, 100);
 
-  const { sheets, drive } = await getGoogleClients();
+  const { sheets, drive } = clients ?? (await getGoogleClients());
 
   // 1) Create spreadsheet
   const createRes = await sheets.spreadsheets.create({

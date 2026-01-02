@@ -1,6 +1,46 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { hashTransaction, filterDuplicates, getExistingHashes } from "./sheetsExport";
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vitest";
 import type { CanonicalTransaction } from "@shared/transactions";
+
+// vitest hoists `vi.mock` calls, so any referenced variables must be hoisted too.
+const { mockSheets, mockDrive } = vi.hoisted(() => {
+  const mockSheets = {
+    spreadsheets: {
+      create: vi.fn(),
+      values: {
+        update: vi.fn(),
+      },
+      batchUpdate: vi.fn(),
+    },
+  };
+
+  const mockDrive = {
+    permissions: {
+      create: vi.fn(),
+    },
+    files: {
+      get: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+    },
+  };
+
+  return { mockSheets, mockDrive };
+});
+
+let hashTransaction: typeof import("./sheetsExport").hashTransaction;
+let filterDuplicates: typeof import("./sheetsExport").filterDuplicates;
+let getExistingHashes: typeof import("./sheetsExport").getExistingHashes;
+let exportTransactionsToGoogleSheet: typeof import("./sheetsExport").exportTransactionsToGoogleSheet;
+let SheetsExportError: typeof import("./sheetsExport").SheetsExportError;
+
+beforeAll(async () => {
+  const mod = await import("./sheetsExport");
+  hashTransaction = mod.hashTransaction;
+  filterDuplicates = mod.filterDuplicates;
+  getExistingHashes = mod.getExistingHashes;
+  exportTransactionsToGoogleSheet = mod.exportTransactionsToGoogleSheet;
+  SheetsExportError = mod.SheetsExportError;
+});
 
 describe("sheetsExport", () => {
   describe("hashTransaction", () => {
@@ -405,56 +445,6 @@ describe("sheetsExport", () => {
     });
   });
 });
-import { describe, expect, it, vi, beforeEach } from "vitest";
-
-// vitest hoists `vi.mock` calls, so any referenced variables must be hoisted too.
-const { mockSheets, mockDrive } = vi.hoisted(() => {
-  const mockSheets = {
-    spreadsheets: {
-      create: vi.fn(),
-      values: {
-        update: vi.fn(),
-      },
-      batchUpdate: vi.fn(),
-    },
-  };
-
-  const mockDrive = {
-    permissions: {
-      create: vi.fn(),
-    },
-    files: {
-      get: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
-    },
-  };
-
-  return { mockSheets, mockDrive };
-});
-
-vi.mock("googleapis", () => ({
-  google: {
-    auth: {
-      GoogleAuth: vi.fn().mockImplementation(() => ({})),
-    },
-    sheets: vi.fn().mockReturnValue(mockSheets),
-    drive: vi.fn().mockReturnValue(mockDrive),
-  },
-  sheets_v4: {},
-  drive_v3: {},
-}));
-
-vi.mock("./_core/env", () => ({
-  getDocumentAiConfig: vi.fn().mockReturnValue({
-    credentials: { client_email: "x", private_key: "y" },
-  }),
-}));
-
-import {
-  exportTransactionsToGoogleSheet,
-  SheetsExportError,
-} from "./sheetsExport";
 
 describe("exportTransactionsToGoogleSheet - folder move failure behavior", () => {
   beforeEach(() => {
@@ -490,6 +480,7 @@ describe("exportTransactionsToGoogleSheet - folder move failure behavior", () =>
         } as any,
       ],
       sheetName: "Test Export",
+      clients: { sheets: mockSheets as any, drive: mockDrive as any },
       userEmail: "user@example.com",
     });
 
@@ -515,6 +506,7 @@ describe("exportTransactionsToGoogleSheet - folder move failure behavior", () =>
         ],
         sheetName: "Test Export",
         folderId: "bad_folder",
+        clients: { sheets: mockSheets as any, drive: mockDrive as any },
         userEmail: "user@example.com",
       })
     ).rejects.toMatchObject({
@@ -554,6 +546,7 @@ describe("exportTransactionsToGoogleSheet - folder move failure behavior", () =>
         ],
         sheetName: "Test Export",
         folderId: "no_permission",
+        clients: { sheets: mockSheets as any, drive: mockDrive as any },
         userEmail: "user@example.com",
       });
     } catch (err) {
@@ -583,6 +576,7 @@ describe("exportTransactionsToGoogleSheet - folder move failure behavior", () =>
       ],
       sheetName: "Test Export",
       folderId: "shared_drive_folder",
+      clients: { sheets: mockSheets as any, drive: mockDrive as any },
       userEmail: "user@example.com",
     });
 
