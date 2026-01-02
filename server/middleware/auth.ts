@@ -45,7 +45,10 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
       algorithms: ["HS256"],
     });
 
-    const { email, name, picture, openId } = payload as Record<string, unknown>;
+    const { email, name, picture, openId, accessToken, refreshToken } = payload as Record<
+      string,
+      unknown
+    >;
 
     if (!isNonEmptyString(email) || !isNonEmptyString(openId)) {
       console.warn("[Auth] Session payload missing required fields");
@@ -57,6 +60,8 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
       name: typeof name === "string" ? name : undefined,
       picture: typeof picture === "string" ? picture : undefined,
       openId,
+      accessToken: isNonEmptyString(accessToken) ? accessToken : undefined,
+      refreshToken: isNonEmptyString(refreshToken) ? refreshToken : undefined,
     };
   } catch (error) {
     console.warn("[Auth] Session verification failed", String(error));
@@ -218,14 +223,22 @@ export async function createSessionToken(payload: SessionPayload & { accessToken
   const expiresInMs = 7 * 24 * 60 * 60 * 1000; // 7 days
   const expirationSeconds = Math.floor((issuedAt + expiresInMs) / 1000);
 
-  return new SignJWT({
+  const claims: Record<string, string> = {
     email: payload.email,
     name: payload.name ?? "",
     picture: payload.picture ?? "",
     openId: payload.openId,
-    accessToken: payload.accessToken ?? "",
-    refreshToken: payload.refreshToken ?? "",
-  })
+  };
+
+  // Optional OAuth tokens (used e.g. for Google Sheets export)
+  if (isNonEmptyString(payload.accessToken)) {
+    claims.accessToken = payload.accessToken;
+  }
+  if (isNonEmptyString(payload.refreshToken)) {
+    claims.refreshToken = payload.refreshToken;
+  }
+
+  return new SignJWT(claims)
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setExpirationTime(expirationSeconds)
     .setIssuedAt(Math.floor(issuedAt / 1000))

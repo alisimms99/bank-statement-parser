@@ -1,4 +1,5 @@
 import { google, sheets_v4, drive_v3 } from "googleapis";
+import { google, sheets_v4 } from "googleapis";
 import type { CanonicalTransaction } from "@shared/transactions";
 import { getDocumentAiConfig } from "./_core/env";
 
@@ -16,6 +17,45 @@ export interface SheetsExportParams {
 export interface SheetsExportResult {
   spreadsheetId: string;
   spreadsheetUrl: string;
+}
+
+export type SheetsExportErrorKind =
+  | "drive_move_failed_spreadsheet_deleted"
+  | "drive_move_failed_spreadsheet_retained";
+
+/**
+ * Error thrown when a Google Sheets export partially succeeds.
+ *
+ * In particular, if the spreadsheet is created but cannot be moved to `folderId`,
+ * we either delete it (to avoid orphaning) or (if deletion fails) include the URL
+ * so the caller can still access it.
+ */
+export class SheetsExportError extends Error {
+  kind: SheetsExportErrorKind;
+  spreadsheetId: string;
+  spreadsheetUrl: string;
+  cleanupError?: unknown;
+
+  constructor(
+    message: string,
+    opts: {
+      kind: SheetsExportErrorKind;
+      spreadsheetId: string;
+      spreadsheetUrl: string;
+      cleanupError?: unknown;
+      cause?: unknown;
+    }
+  ) {
+    // Preserve the root cause when supported (Node 16+/modern runtimes)
+    // while still attaching useful metadata for callers/tests.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    super(message, opts.cause ? ({ cause: opts.cause } as any) : undefined);
+    this.name = "SheetsExportError";
+    this.kind = opts.kind;
+    this.spreadsheetId = opts.spreadsheetId;
+    this.spreadsheetUrl = opts.spreadsheetUrl;
+    this.cleanupError = opts.cleanupError;
+  }
 }
 
 function resolveServiceAccountCredentials(): Record<string, unknown> {
@@ -38,6 +78,7 @@ async function getGoogleClients() {
     "https://www.googleapis.com/auth/drive.file",
   ];
   const auth = new google.auth.GoogleAuth({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     credentials: credentials as any,
     scopes,
   });
@@ -89,6 +130,7 @@ function toAmount(tx: CanonicalTransaction): number {
 function buildSheetValues(transactions: CanonicalTransaction[]) {
   const headers = ["Date", "Description", "Payee", "Amount", "Balance"];
   const rows = transactions.map((tx) => [
+  const rows = transactions.map(tx => [
     tx.date ?? "",
     tx.description ?? "",
     tx.payee ?? "",
@@ -105,6 +147,19 @@ export async function exportTransactionsToGoogleSheet(
   params: SheetsExportParams
 ): Promise<SheetsExportResult> {
   const { transactions, sheetName, folderId, userEmail } = params;
+function extractGoogleApiErrorMessage(err: unknown, fallback: string): string {
+  if (!err) return fallback;
+  const asAny = err as unknown as { errors?: Array<{ message?: string }> };
+  const nested = asAny.errors?.[0]?.message;
+  if (nested && typeof nested === "string") return nested;
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
+}
+
+export async function exportTransactionsToGoogleSheet(
+  params: SheetsExportParams
+): Promise<SheetsExportResult> {
+  const { transactions, sheetName, folderId } = params;
   if (!Array.isArray(transactions) || transactions.length === 0) {
     throw new Error("transactions array is required and must not be empty");
   }
@@ -139,6 +194,10 @@ export async function exportTransactionsToGoogleSheet(
   // 1b) Ensure the authenticated user can access the file.
   // Without this, the service account owns the sheet and the user will get "Access denied".
   await shareFileWithUser({ drive, fileId: spreadsheetId, userEmail });
+
+  const sheetId: number | undefined =
+    createRes.data.sheets?.[0]?.properties?.sheetId ?? undefined;
+  const sheetTitle = createRes.data.sheets?.[0]?.properties?.title ?? "Sheet1";
 
   // 2) Write header + rows
   const { headers, rows } = buildSheetValues(transactions);
@@ -255,6 +314,7 @@ export async function exportTransactionsToGoogleSheet(
       const getRes = await drive.files.get({
         fileId: spreadsheetId,
         fields: "parents",
+        supportsAllDrives: true,
       });
       const previousParents = getRes.data.parents?.join(",") ?? "";
       await drive.files.update({
@@ -270,6 +330,49 @@ export async function exportTransactionsToGoogleSheet(
         (err as Error)?.message ||
         "Failed to move spreadsheet to target folder";
       throw new Error(`Drive move failed: ${message}`);
+        supportsAllDrives: true,
+      });
+    } catch (moveErr) {
+      const message = extractGoogleApiErrorMessage(
+        moveErr,
+        "Failed to move spreadsheet to target folder"
+      );
+
+      // Best-effort cleanup to avoid orphaning the created sheet in Drive root.
+      let cleanupErr: unknown | undefined;
+      try {
+        await drive.files.delete({ 
+          fileId: spreadsheetId,
+          supportsAllDrives: true,
+        });
+      } catch (err) {
+        cleanupErr = err;
+      }
+
+      if (!cleanupErr) {
+        throw new SheetsExportError(
+          `Drive move failed: ${message}. The spreadsheet was deleted to avoid orphaning.`,
+          {
+            kind: "drive_move_failed_spreadsheet_deleted",
+            spreadsheetId,
+            spreadsheetUrl,
+            cause: moveErr,
+          }
+        );
+      }
+
+      {
+        throw new SheetsExportError(
+          `Drive move failed: ${message}. The spreadsheet was created successfully and can be accessed at: ${spreadsheetUrl}`,
+          {
+            kind: "drive_move_failed_spreadsheet_retained",
+            spreadsheetId,
+            spreadsheetUrl,
+            cleanupError: cleanupErr,
+            cause: moveErr,
+          }
+        );
+      }
     }
   }
 
