@@ -504,8 +504,19 @@ export function registerExportRoutes(app: Express): void {
   app.post("/api/export/sheets", requireAuth, async (req, res) => {
     try {
       const { transactions, folderId, sheetName, mode = 'create', spreadsheetId: existingSpreadsheetId, sheetTabName = 'Transactions' } = req.body;
+      const {
+        transactions,
+        folderId,
+        sheetName,
+        mode = "create",
+        spreadsheetId: existingSpreadsheetId,
+        sheetTabName,
+      } = req.body ?? {};
+
       const finalSheetTabName =
-        typeof sheetTabName === "string" && sheetTabName.trim() ? sheetTabName.trim() : "Transactions";
+        typeof sheetTabName === "string" && sheetTabName.trim()
+          ? sheetTabName.trim()
+          : "Transactions";
 
       const escapeSheetTabNameForA1 = (tabName: string) => tabName.replace(/'/g, "''");
 
@@ -629,8 +640,9 @@ export function registerExportRoutes(app: Express): void {
           ]);
 
           // Append transactions to the specified sheet tab
+          const appendRange = `'${escapeSheetTabNameForA1(finalSheetTabName)}'!A:A`;
           const appendResponse = await fetch(
-            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetTabName)}!A:A:append?valueInputOption=RAW`,
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(appendRange)}:append?valueInputOption=RAW`,
             {
               method: "POST",
               headers: {

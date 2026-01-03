@@ -10,7 +10,9 @@ import type { drive_v3, sheets_v4 } from "googleapis";
  */
 export function hashTransaction(tx: CanonicalTransaction): string {
   const amount = tx.debit || tx.credit || 0;
-  const hashInput = `${tx.date}|${amount}|${tx.description}`;
+  // Keep consistent with exported sheet values: fall back to posted_date when date is null/undefined.
+  const effectiveDate = tx.date ?? tx.posted_date ?? "";
+  const hashInput = `${effectiveDate}|${amount}|${tx.description ?? ""}`;
   return createHash("sha256").update(hashInput).digest("hex");
 }
 

@@ -154,6 +154,18 @@ describe("sheetsExport", () => {
       expect(hash).toBeTruthy();
       expect(hash).toHaveLength(64);
     });
+
+    it("should include posted_date when date is null to avoid collisions", () => {
+      const base: Partial<CanonicalTransaction> = {
+        date: null as any,
+        description: "Same description",
+        debit: 5,
+      };
+      const tx1 = { ...base, posted_date: "2024-01-01" } as any;
+      const tx2 = { ...base, posted_date: "2024-01-02" } as any;
+
+      expect(hashTransaction(tx1)).not.toBe(hashTransaction(tx2));
+    });
   });
 
   describe("filterDuplicates", () => {
