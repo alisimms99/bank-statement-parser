@@ -1,12 +1,235 @@
+import { createHash } from "crypto";
+import fs from "fs";
+import type { CanonicalTransaction } from "@shared/transactions";
 import { google } from "googleapis";
 import type { drive_v3, sheets_v4 } from "googleapis";
-import type { CanonicalTransaction } from "@shared/transactions";
-import { getDocumentAiConfig } from "./_core/env";
+
+/**
+ * Generate a SHA256 hash for a transaction
+ * Hash is based on: date + amount + description
+ */
+export function hashTransaction(tx: CanonicalTransaction): string {
+  const amount = tx.debit || tx.credit || 0;
+  // Keep consistent with exported sheet values: fall back to posted_date when date is null/undefined.
+  const effectiveDate = tx.date ?? tx.posted_date ?? "";
+  const hashInput = `${effectiveDate}|${amount}|${tx.description ?? ""}`;
+  return createHash("sha256").update(hashInput).digest("hex");
+}
+
+/**
+ * Get existing transaction hashes from the Hashes sheet
+ */
+export async function getExistingHashes(
+  spreadsheetId: string,
+  accessToken: string
+): Promise<Set<string>> {
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Hashes!A:A`,
+    {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  if (!response.ok) {
+    // If the Hashes sheet doesn't exist, return empty set
+    if (response.status === 400) {
+      return new Set<string>();
+    }
+    let errorText = "";
+    try {
+      errorText = await response.text();
+    } catch {
+      // If we can't read the response body, use a generic message
+      errorText = response.statusText || "Unknown error";
+    }
+    throw new Error(`Failed to fetch existing hashes (${response.status}): ${errorText}`);
+  }
+
+  const data = await response.json();
+  const hashes = new Set<string>();
+  
+  if (data.values && Array.isArray(data.values)) {
+    // Skip the header row if it exists
+    const startIndex = data.values[0]?.[0] === "Hash" ? 1 : 0;
+    for (let i = startIndex; i < data.values.length; i++) {
+      if (data.values[i]?.[0]) {
+        hashes.add(data.values[i][0]);
+      }
+    }
+  }
+
+  return hashes;
+}
+
+/**
+ * Ensure the Hashes sheet exists and is hidden
+ */
+export async function ensureHashesSheet(
+  spreadsheetId: string,
+  accessToken: string
+): Promise<number> {
+  try {
+    // First, get the spreadsheet metadata to check if Hashes sheet exists
+    const metadataResponse = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
+      {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    if (!metadataResponse.ok) {
+      throw new Error("Failed to fetch spreadsheet metadata");
+    }
+
+    const metadata = await metadataResponse.json();
+    const hashesSheet = metadata.sheets?.find(
+      (sheet: any) => sheet.properties.title === "Hashes"
+    );
+
+    if (hashesSheet) {
+      // Sheet exists, return its ID
+      return hashesSheet.properties.sheetId;
+    }
+
+    // Create the Hashes sheet
+    const createResponse = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              addSheet: {
+                properties: {
+                  title: "Hashes",
+                  hidden: true,
+                },
+              },
+            },
+          ],
+        }),
+      }
+    );
+
+    if (!createResponse.ok) {
+      const error = await createResponse.json();
+      throw new Error(error.error?.message || "Failed to create Hashes sheet");
+    }
+
+    const createResult = await createResponse.json();
+    const newSheetId = createResult.replies[0].addSheet.properties.sheetId;
+
+    // Add header row to Hashes sheet
+    await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Hashes!A1:append?valueInputOption=RAW`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          values: [["Hash"]],
+        }),
+      }
+    );
+
+    return newSheetId;
+  } catch (error) {
+    console.error("Error ensuring Hashes sheet:", error);
+    throw error;
+  }
+}
+
+/**
+ * Append new hashes to the Hashes sheet
+ */
+export async function appendHashes(
+  spreadsheetId: string,
+  accessToken: string,
+  hashes: string[]
+): Promise<void> {
+  if (hashes.length === 0) {
+    return;
+  }
+
+  try {
+    const values = hashes.map(hash => [hash]);
+    
+    const response = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Hashes!A:A:append?valueInputOption=RAW`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          values,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || "Failed to append hashes");
+    }
+  } catch (error) {
+    console.error("Error appending hashes:", error);
+    throw error;
+  }
+}
+
+/**
+ * Filter out duplicate transactions based on existing hashes
+ * Returns: { uniqueTransactions, duplicateCount }
+ */
+export function filterDuplicates(
+  transactions: CanonicalTransaction[],
+  existingHashes: Set<string>
+): { uniqueTransactions: CanonicalTransaction[]; duplicateCount: number; newHashes: string[] } {
+  const uniqueTransactions: CanonicalTransaction[] = [];
+  const newHashes: string[] = [];
+  let duplicateCount = 0;
+
+  for (const tx of transactions) {
+    const hash = hashTransaction(tx);
+    
+    if (!existingHashes.has(hash)) {
+      uniqueTransactions.push(tx);
+      newHashes.push(hash);
+      existingHashes.add(hash); // Add to set to catch duplicates within the same batch
+    } else {
+      duplicateCount++;
+    }
+  }
+
+  return { uniqueTransactions, duplicateCount, newHashes };
+}
 
 export interface SheetsExportParams {
   transactions: CanonicalTransaction[];
   sheetName: string;
   folderId?: string | null;
+  /**
+   * Dependency injection for tests. If provided, avoids constructing real Google
+   * API clients (and avoids needing service account credentials in tests).
+   */
+  clients?: {
+    sheets: sheets_v4.Sheets;
+    drive: drive_v3.Drive;
+  };
   /**
    * Email of the authenticated user who should have access to the exported file.
    * The spreadsheet is created by a service account, so we must explicitly share it.
@@ -65,16 +288,58 @@ function extractGoogleApiErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-function resolveServiceAccountCredentials(): Record<string, unknown> {
-  // Reuse service account loader used by Document AI config
-  const docAiConfig = getDocumentAiConfig();
-  const credentials = docAiConfig.credentials;
-  if (!credentials) {
-    throw new Error(
-      "Google service account credentials not configured. Set GCP_SERVICE_ACCOUNT_JSON or GCP_SERVICE_ACCOUNT_PATH."
-    );
+function readEnvOrFile(name: string): string {
+  const direct = process.env[name];
+  if (direct && direct.length > 0) return direct;
+
+  const filePath = process.env[`${name}_FILE`];
+  if (!filePath) return "";
+
+  try {
+    return fs.readFileSync(filePath, "utf8").trim();
+  } catch {
+    return "";
   }
-  return credentials;
+}
+
+function tryParseJsonCredentials(raw: string): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const decoded = Buffer.from(raw, "base64").toString("utf8");
+    return JSON.parse(decoded);
+  } catch {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function resolveServiceAccountCredentials(): Record<string, unknown> {
+  const raw =
+    readEnvOrFile("GCP_SERVICE_ACCOUNT_JSON") ||
+    readEnvOrFile("GCP_DOCUMENTAI_CREDENTIALS"); // legacy env var name
+
+  const parsed = tryParseJsonCredentials(raw);
+  if (parsed) return parsed;
+
+  const serviceAccountPath = process.env.GCP_SERVICE_ACCOUNT_PATH ?? "";
+  if (serviceAccountPath) {
+    try {
+      if (fs.existsSync(serviceAccountPath)) {
+        const content = fs.readFileSync(serviceAccountPath, "utf8");
+        const fromFile = tryParseJsonCredentials(content);
+        if (fromFile) return fromFile;
+      }
+    } catch {
+      // Ignore and fall through to error
+    }
+  }
+
+  throw new Error(
+    "Google service account credentials not configured. Set GCP_SERVICE_ACCOUNT_JSON (or *_FILE) or GCP_SERVICE_ACCOUNT_PATH."
+  );
 }
 
 async function getGoogleClients(): Promise<{
@@ -157,14 +422,14 @@ function buildSheetValues(transactions: CanonicalTransaction[]) {
 export async function exportTransactionsToGoogleSheet(
   params: SheetsExportParams
 ): Promise<SheetsExportResult> {
-  const { transactions, sheetName, folderId, userEmail } = params;
+  const { transactions, sheetName, folderId, userEmail, clients } = params;
   if (!Array.isArray(transactions) || transactions.length === 0) {
     throw new Error("transactions array is required and must not be empty");
   }
 
   const safeSheetName = (sheetName || "Transactions Export").slice(0, 100);
 
-  const { sheets, drive } = await getGoogleClients();
+  const { sheets, drive } = clients ?? (await getGoogleClients());
 
   // 1) Create spreadsheet
   const createRes = await sheets.spreadsheets.create({
