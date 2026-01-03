@@ -30,7 +30,6 @@ const MASTER_SHEET_ID_KEY = 'masterSheetId';
 const MASTER_SHEET_URL_KEY = 'masterSheetUrl';
 const buildSpreadsheetUrl = (spreadsheetId: string) =>
   `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
-type ExportState = "idle" | "selecting" | "exporting" | "success" | "error";
 
 export default function SheetsExport({ transactions }: SheetsExportProps) {
   const { user } = useAuth();
@@ -44,7 +43,6 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
   const [exportMode, setExportMode] = useState<ExportMode>('create');
   const [masterSheetId, setMasterSheetId] = useState<string>('');
   const [masterSheetUrl, setMasterSheetUrl] = useState<string>('');
-  const [sheetTabName, setSheetTabName] = useState<string>('Transactions');
   const [rowsAdded, setRowsAdded] = useState<number>(0);
   const [rowsSkipped, setRowsSkipped] = useState<number>(0);
   const [pickerApiError, setPickerApiError] = useState<string | null>(null);
@@ -223,18 +221,7 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
         toast.error('Please enter a sheet tab name');
         return;
       }
-  const handleExport = async () => {
-    if (!selectedFolder) {
-      toast.error("Please select a folder first");
-      return;
     }
-
-    if (!sheetName.trim()) {
-      toast.error("Please enter a sheet name");
-      return;
-    }
-
-    const finalSheetTabName = sheetTabName.trim() || "Transactions";
 
     if (transactions.length === 0) {
       toast.error("No transactions to export");
@@ -267,20 +254,6 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
         },
         credentials: 'include',
         body: JSON.stringify(requestBody),
-    setExportState("exporting");
-    setErrorMessage("");
-
-    try {
-      const response = await fetch("/api/export/sheets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          transactions,
-          folderId: selectedFolder.id,
-          sheetName: sheetName.trim(),
-          sheetTabName: finalSheetTabName,
-        }),
       });
 
       if (!response.ok) {
@@ -307,8 +280,6 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
       } else {
         toast.success('Successfully exported to Google Sheets!');
       }
-      setExportState("success");
-      toast.success("Successfully exported to Google Sheets!");
     } catch (error) {
       console.error("Error exporting to Sheets:", error);
       const message =
@@ -325,9 +296,6 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
     setErrorMessage('');
     setRowsAdded(0);
     setRowsSkipped(0);
-    setExportState("idle");
-    setExportedSheetUrl("");
-    setErrorMessage("");
   };
 
   if (!user) {
@@ -519,82 +487,6 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
           </div>
         </>
       )}
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={handleOpenPicker}
-            disabled={
-              exportState === "selecting" ||
-              exportState === "exporting" ||
-              !pickerApiLoaded
-            }
-            className="gap-2"
-          >
-            {exportState === "selecting" ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <FolderOpen className="w-4 h-4" />
-            )}
-            {selectedFolder ? "Change Folder" : "Select Folder"}
-          </Button>
-
-          {selectedFolder && (
-            <div className="flex-1 flex items-center px-3 py-2 rounded-md border border-border bg-background/60">
-              <span className="text-sm text-foreground truncate">
-                {selectedFolder.name}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {pickerApiError ? (
-          <p className="text-xs text-destructive">{pickerApiError}</p>
-        ) : !selectedFolder ? (
-          <p className="text-xs text-muted-foreground">
-            Choose where to save the spreadsheet in your Google Drive
-          </p>
-        ) : null}
-      </div>
-
-      <div className="space-y-2">
-        <label
-          htmlFor="sheet-name"
-          className="text-sm font-medium text-foreground"
-        >
-          Sheet Name
-        </label>
-        <Input
-          id="sheet-name"
-          type="text"
-          value={sheetName}
-          onChange={(e) => setSheetName(e.target.value)}
-          placeholder="Enter sheet name"
-          disabled={exportState === "exporting"}
-        />
-        <p className="text-xs text-muted-foreground">
-          A new Google Sheet will be created with this name
-        </p>
-      </div>
-
-      {/* Sheet Tab Name Input */}
-      <div className="space-y-2">
-        <label
-          htmlFor="sheet-tab-name"
-          className="text-sm font-medium text-foreground"
-        >
-          Sheet Tab Name
-        </label>
-        <Input
-          id="sheet-tab-name"
-          type="text"
-          value={sheetTabName}
-          onChange={(e) => setSheetTabName(e.target.value)}
-          placeholder="Transactions"
-          disabled={exportState === "exporting"}
-        />
-        <p className="text-xs text-muted-foreground">
-          Transactions will be written to this tab within the spreadsheet
-        </p>
       </div>
 
       {/* Export Button */}
@@ -606,17 +498,11 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
             (exportMode === 'append' && (!masterSheetId.trim() || !sheetTabName.trim())) ||
             transactions.length === 0 ||
             exportState === 'selecting'
-            !selectedFolder ||
-            !sheetName.trim() ||
-            transactions.length === 0 ||
-            exportState === "selecting"
           }
           className="w-full gap-2"
         >
           <FileSpreadsheet className="w-4 h-4" />
           {exportMode === 'create' ? 'Create & Export' : 'Append'} {transactions.length} Transaction{transactions.length !== 1 ? 's' : ''}
-          Export {transactions.length} Transaction
-          {transactions.length !== 1 ? "s" : ""} to Google Sheets
         </Button>
       )}
 

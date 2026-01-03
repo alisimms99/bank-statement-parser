@@ -504,7 +504,6 @@ export function registerExportRoutes(app: Express): void {
   app.post("/api/export/sheets", requireAuth, async (req, res) => {
     try {
       const { transactions, folderId, sheetName, mode = 'create', spreadsheetId: existingSpreadsheetId, sheetTabName = 'Transactions' } = req.body;
-      const { transactions, folderId, sheetName, sheetTabName } = req.body;
       const finalSheetTabName =
         typeof sheetTabName === "string" && sheetTabName.trim() ? sheetTabName.trim() : "Transactions";
 
