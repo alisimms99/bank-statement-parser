@@ -503,6 +503,7 @@ export function registerExportRoutes(app: Express): void {
    */
   app.post("/api/export/sheets", requireAuth, async (req, res) => {
     try {
+      const { transactions, folderId, sheetName, mode = 'create', spreadsheetId: existingSpreadsheetId, sheetTabName = 'Transactions' } = req.body;
       const {
         transactions,
         folderId,
