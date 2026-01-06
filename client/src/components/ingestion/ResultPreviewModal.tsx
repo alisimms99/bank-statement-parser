@@ -81,7 +81,7 @@ export default function ResultPreviewModal({
       setTransactions(initialTransactions);
       setCleanupStats(null);
     }
-  }, [open, initialTransactions]);
+  }, [open]);
 
   const handleExportCSV = async () => {
     if (transactions.length === 0) {
