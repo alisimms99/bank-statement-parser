@@ -166,48 +166,89 @@ export async function cleanTransactions(
     ],
   };
 
-  const response = await invokeLLM({
-    model: AI_MODEL,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-    responseFormat: {
-      type: "json_schema",
-      json_schema: {
-        name: "CleanupResult",
-        strict: true,
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            cleaned: { type: "array", items: canonicalTransactionSchema },
-            removed: { type: "array", items: canonicalTransactionSchema },
-            flagged: { type: "array", items: canonicalTransactionSchema },
+  let response: any = null;
+  let usage: InvokeResult["usage"] | undefined = undefined;
+  let llmError: string | null = null;
+
+  try {
+    response = await invokeLLM({
+      model: AI_MODEL,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      responseFormat: {
+        type: "json_schema",
+        json_schema: {
+          name: "CleanupResult",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              cleaned: { type: "array", items: canonicalTransactionSchema },
+              removed: { type: "array", items: canonicalTransactionSchema },
+              flagged: { type: "array", items: canonicalTransactionSchema },
+            },
+            required: ["cleaned", "removed", "flagged"],
           },
-          required: ["cleaned", "removed", "flagged"],
         },
       },
-    },
-    maxTokens: 4096,
-  });
+      maxTokens: 4096,
+    });
+    usage = response.usage;
+  } catch (error) {
+    // API failure (network, rate limit, outage, etc.)
+    llmError = error instanceof Error ? error.message : String(error);
+    logEvent("ai_cleanup_llm_error", {
+      error: llmError,
+      inputCount: transactions.length,
+    });
+  }
 
-  const usage = response.usage;
   const approxCostUsd = estimateCostUsd(usage);
 
   let result: CleanupResult | null = null;
-  try {
-    const content = response.choices?.[0]?.message?.content;
-    const raw =
-      typeof content === "string"
-        ? content
-        : Array.isArray(content)
-          ? content.map(p => ("text" in p ? p.text : "")).join("\n")
-          : "";
-    const parsed: unknown = JSON.parse(raw);
-    result = isCleanupResult(parsed) ? parsed : null;
-  } catch {
-    result = null;
+  if (response) {
+    try {
+      const content = response.choices?.[0]?.message?.content;
+      const raw =
+        typeof content === "string"
+          ? content
+          : Array.isArray(content)
+            ? content.map(p => ("text" in p ? p.text : "")).join("\n")
+            : "";
+      result = JSON.parse(raw) as CleanupResult;
+    } catch (error) {
+      // Malformed response
+      const parseError = error instanceof Error ? error.message : String(error);
+      logEvent("ai_cleanup_parse_error", {
+        error: parseError,
+        inputCount: transactions.length,
+      });
+      result = null;
+    }
+    try {
+      const content = response.choices?.[0]?.message?.content;
+      const raw =
+        typeof content === "string"
+          ? content
+          : Array.isArray(content)
+            ? content.map(p => ("text" in p ? p.text : "")).join("\n")
+            : "";
+      const parsed: unknown = JSON.parse(raw);
+      result = isCleanupResult(parsed) ? parsed : null;
+    } catch {
+      result = null;
+    }
+  }
+
+  // Capture fallback state BEFORE running the fallback block so logging is accurate
+  const neededDeterministicFallback = !result;
+  let fallbackReason: string | null = null;
+  if (neededDeterministicFallback) {
+    // If the API threw, it's an API error; otherwise, a parse/shape error
+    fallbackReason = llmError ? "api_error" : response ? "parse_error" : "api_error";
   }
 
   // Fallback: lightweight deterministic cleanup if LLM failed
@@ -229,6 +270,8 @@ export async function cleanTransactions(
     result = { cleaned, removed, flagged };
   }
 
+  const usedDeterministicFallback = neededDeterministicFallback;
+
   logEvent("ai_cleanup_complete", {
     inputCount: transactions.length,
     cleaned: result.cleaned.length,
@@ -238,6 +281,8 @@ export async function cleanTransactions(
     completionTokens: usage?.completion_tokens ?? null,
     totalTokens: usage?.total_tokens ?? null,
     approxCostUsd,
+    usedFallback: usedDeterministicFallback,
+    fallbackReason,
   });
 
   return result;
