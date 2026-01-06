@@ -283,7 +283,9 @@ export default function ResultPreviewModal({
             </TableHeader>
             <TableBody>
               {transactions.map((tx, index) => {
-                const isFlagged = !tx.date && !tx.posted_date;
+                const effectiveDate =
+                  tx.date?.trim() || tx.posted_date?.trim() || null;
+                const isFlagged = !effectiveDate;
                 return (
                   <TableRow 
                     key={index} 
@@ -303,7 +305,7 @@ export default function ResultPreviewModal({
                             </Tooltip>
                           </TooltipProvider>
                         )}
-                        {tx.date ?? tx.posted_date ?? "—"}
+                        {effectiveDate ?? "—"}
                       </div>
                     </TableCell>
                     <TableCell className="max-w-xs truncate" title={tx.description}>
