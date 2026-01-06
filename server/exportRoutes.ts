@@ -31,6 +31,9 @@ const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const SHEETS_TRANSACTIONS_SHEET_TITLE = "Transactions";
 const SHEETS_HASHES_SHEET_TITLE = "Transaction Hashes";
 
+// Pattern for extracting YYYY-MM from ISO date format
+const PERIOD_PATTERN = /^(\d{4}-\d{2})/;
+
 function toSheetsRow(tx: CanonicalTransaction): string[] {
   // Spec #129 Columns:
   // A: Date
@@ -548,11 +551,11 @@ export function registerExportRoutes(app: Express): void {
       // Group transactions by period once for better performance
       const transactionsByPeriod = new Map<string, number>();
       for (const tx of transactions) {
-        const txDate = tx.date || tx.posted_date;
+        const txDate = tx.date ?? tx.posted_date;
         if (!txDate) continue;
         
         // Extract YYYY-MM from ISO date format (YYYY-MM-DD)
-        const periodMatch = txDate.match(/^(\d{4}-\d{2})/);
+        const periodMatch = txDate.match(PERIOD_PATTERN);
         if (!periodMatch) continue;
         
         const txPeriod = periodMatch[1];
