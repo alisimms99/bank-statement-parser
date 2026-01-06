@@ -1,5 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useAuth } from "@/hooks/useAuth";
 import type { CanonicalTransaction } from "@shared/transactions";
 import {
@@ -21,7 +23,13 @@ interface SelectedFolder {
   name: string;
 }
 
-type ExportState = "idle" | "selecting" | "exporting" | "success" | "error";
+type ExportState = 'idle' | 'selecting' | 'exporting' | 'success' | 'error';
+type ExportMode = 'create' | 'append';
+
+const MASTER_SHEET_ID_KEY = 'masterSheetId';
+const MASTER_SHEET_URL_KEY = 'masterSheetUrl';
+const buildSpreadsheetUrl = (spreadsheetId: string) =>
+  `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
 
 export default function SheetsExport({ transactions }: SheetsExportProps) {
   const { user } = useAuth();
@@ -32,11 +40,25 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
   const [exportedSheetUrl, setExportedSheetUrl] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [pickerApiLoaded, setPickerApiLoaded] = useState(false);
+  const [exportMode, setExportMode] = useState<ExportMode>('create');
+  const [masterSheetId, setMasterSheetId] = useState<string>('');
+  const [masterSheetUrl, setMasterSheetUrl] = useState<string>('');
+  const [rowsAdded, setRowsAdded] = useState<number>(0);
+  const [rowsSkipped, setRowsSkipped] = useState<number>(0);
   const [pickerApiError, setPickerApiError] = useState<string | null>(null);
 
   useEffect(() => {
     const today = new Date().toISOString().split("T")[0];
     setSheetName(`Bank Transactions ${today}`);
+
+    // Load master sheet ID from localStorage
+    const savedMasterSheetId = localStorage.getItem(MASTER_SHEET_ID_KEY);
+    const savedMasterSheetUrl = localStorage.getItem(MASTER_SHEET_URL_KEY);
+    if (savedMasterSheetId) {
+      setMasterSheetId(savedMasterSheetId);
+      setMasterSheetUrl(savedMasterSheetUrl || buildSpreadsheetUrl(savedMasterSheetId));
+      setExportMode('append');
+    }
   }, []);
 
   useEffect(() => {
@@ -151,38 +173,87 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
     }
   };
 
+  const handleSaveMasterSheet = () => {
+    const trimmedId = masterSheetId.trim();
+    if (!trimmedId) {
+      toast.error('Please enter a spreadsheet ID');
+      return;
+    }
+
+    const nextUrl = buildSpreadsheetUrl(trimmedId);
+
+    // Normalize state and always keep URL in sync with the saved ID.
+    setMasterSheetId(trimmedId);
+    setMasterSheetUrl(nextUrl);
+
+    localStorage.setItem(MASTER_SHEET_ID_KEY, trimmedId);
+    localStorage.setItem(MASTER_SHEET_URL_KEY, nextUrl);
+    toast.success('Master sheet ID saved!');
+  };
+
+  const handleClearMasterSheet = () => {
+    localStorage.removeItem(MASTER_SHEET_ID_KEY);
+    localStorage.removeItem(MASTER_SHEET_URL_KEY);
+    setMasterSheetId('');
+    setMasterSheetUrl('');
+    setExportMode('create');
+    toast.success('Master sheet ID cleared');
+  };
+
   const handleExport = async () => {
-    if (!selectedFolder) {
-      toast.error("Please select a folder first");
-      return;
-    }
+    if (exportMode === 'create') {
+      if (!selectedFolder) {
+        toast.error('Please select a folder first');
+        return;
+      }
 
-    if (!sheetName.trim()) {
-      toast.error("Please enter a sheet name");
-      return;
-    }
+      if (!sheetName.trim()) {
+        toast.error('Please enter a sheet name');
+        return;
+      }
+    } else if (exportMode === 'append') {
+      if (!masterSheetId.trim()) {
+        toast.error('Please enter a master sheet ID');
+        return;
+      }
 
-    const finalSheetTabName = sheetTabName.trim() || "Transactions";
+      if (!sheetTabName.trim()) {
+        toast.error('Please enter a sheet tab name');
+        return;
+      }
+    }
 
     if (transactions.length === 0) {
       toast.error("No transactions to export");
       return;
     }
 
-    setExportState("exporting");
-    setErrorMessage("");
+    setExportState('exporting');
+    setErrorMessage('');
+    setRowsAdded(0);
+    setRowsSkipped(0);
 
     try {
-      const response = await fetch("/api/export/sheets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          transactions,
-          folderId: selectedFolder.id,
-          sheetName: sheetName.trim(),
-          sheetTabName: finalSheetTabName,
-        }),
+      const requestBody: any = {
+        transactions,
+        mode: exportMode,
+      };
+
+      if (exportMode === 'create') {
+        requestBody.folderId = selectedFolder!.id;
+        requestBody.sheetName = sheetName.trim();
+      } else {
+        requestBody.spreadsheetId = masterSheetId.trim();
+        requestBody.sheetTabName = sheetTabName.trim();
+      }
+
+      const response = await fetch('/api/export/sheets', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -192,8 +263,23 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
 
       const result = await response.json();
       setExportedSheetUrl(result.sheetUrl);
-      setExportState("success");
-      toast.success("Successfully exported to Google Sheets!");
+      setRowsAdded(result.rowsAdded || 0);
+      setRowsSkipped(result.rowsSkipped || 0);
+      setExportState('success');
+
+      // If we created a new sheet, save it as the master sheet
+      if (exportMode === 'create' && result.spreadsheetId) {
+        setMasterSheetId(result.spreadsheetId);
+        setMasterSheetUrl(result.sheetUrl);
+        localStorage.setItem(MASTER_SHEET_ID_KEY, result.spreadsheetId);
+        localStorage.setItem(MASTER_SHEET_URL_KEY, result.sheetUrl);
+      }
+
+      if (exportMode === 'append') {
+        toast.success(`Appended ${result.rowsAdded} transaction(s), skipped ${result.rowsSkipped} duplicate(s)`);
+      } else {
+        toast.success('Successfully exported to Google Sheets!');
+      }
     } catch (error) {
       console.error("Error exporting to Sheets:", error);
       const message =
@@ -205,9 +291,11 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
   };
 
   const handleReset = () => {
-    setExportState("idle");
-    setExportedSheetUrl("");
-    setErrorMessage("");
+    setExportState('idle');
+    setExportedSheetUrl('');
+    setErrorMessage('');
+    setRowsAdded(0);
+    setRowsSkipped(0);
   };
 
   if (!user) {
@@ -249,86 +337,156 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
         </div>
       </div>
 
+      {/* Export Mode Selection */}
+      <div className="space-y-3">
       <div className="space-y-2">
         <label className="text-sm font-medium text-foreground">
-          Destination Folder
+          Export Mode
         </label>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={handleOpenPicker}
-            disabled={
-              exportState === "selecting" ||
-              exportState === "exporting" ||
-              !pickerApiLoaded
-            }
-            className="gap-2"
-          >
-            {exportState === "selecting" ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <FolderOpen className="w-4 h-4" />
-            )}
-            {selectedFolder ? "Change Folder" : "Select Folder"}
-          </Button>
+        <RadioGroup value={exportMode} onValueChange={(value) => setExportMode(value as ExportMode)}>
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="create" id="mode-create" />
+            <Label htmlFor="mode-create" className="cursor-pointer">
+              Create New Spreadsheet
+            </Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="append" id="mode-append" />
+            <Label htmlFor="mode-append" className="cursor-pointer">
+              Append to Master Sheet
+            </Label>
+          </div>
+        </RadioGroup>
+      </div>
 
-          {selectedFolder && (
-            <div className="flex-1 flex items-center px-3 py-2 rounded-md border border-border bg-background/60">
-              <span className="text-sm text-foreground truncate">
-                {selectedFolder.name}
-              </span>
+      {/* Create Mode Fields */}
+      {exportMode === 'create' && (
+        <>
+          {/* Folder Selection */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">
+              Destination Folder
+            </label>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={handleOpenPicker}
+                disabled={exportState === 'selecting' || exportState === 'exporting' || !pickerApiLoaded}
+                className="gap-2"
+              >
+                {exportState === 'selecting' ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FolderOpen className="w-4 h-4" />
+                )}
+                {selectedFolder ? 'Change Folder' : 'Select Folder'}
+              </Button>
+              {selectedFolder && (
+                <div className="flex-1 flex items-center px-3 py-2 rounded-md border border-border bg-background/60">
+                  <span className="text-sm text-foreground truncate">
+                    {selectedFolder.name}
+                  </span>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+            {!selectedFolder && (
+              <p className="text-xs text-muted-foreground">
+                Choose where to save the spreadsheet in your Google Drive
+              </p>
+            )}
+          </div>
 
-        {pickerApiError ? (
-          <p className="text-xs text-destructive">{pickerApiError}</p>
-        ) : !selectedFolder ? (
-          <p className="text-xs text-muted-foreground">
-            Choose where to save the spreadsheet in your Google Drive
-          </p>
-        ) : null}
-      </div>
+          {/* Sheet Name Input */}
+          <div className="space-y-2">
+            <label htmlFor="sheet-name" className="text-sm font-medium text-foreground">
+              Sheet Name
+            </label>
+            <Input
+              id="sheet-name"
+              type="text"
+              value={sheetName}
+              onChange={(e) => setSheetName(e.target.value)}
+              placeholder="Enter sheet name"
+              disabled={exportState === 'exporting'}
+            />
+            <p className="text-xs text-muted-foreground">
+              A new Google Sheet will be created with this name
+            </p>
+          </div>
+        </>
+      )}
 
-      <div className="space-y-2">
-        <label
-          htmlFor="sheet-name"
-          className="text-sm font-medium text-foreground"
-        >
-          Sheet Name
-        </label>
-        <Input
-          id="sheet-name"
-          type="text"
-          value={sheetName}
-          onChange={(e) => setSheetName(e.target.value)}
-          placeholder="Enter sheet name"
-          disabled={exportState === "exporting"}
-        />
-        <p className="text-xs text-muted-foreground">
-          A new Google Sheet will be created with this name
-        </p>
-      </div>
+      {/* Append Mode Fields */}
+      {exportMode === 'append' && (
+        <>
+          {/* Master Sheet ID */}
+          <div className="space-y-2">
+            <label htmlFor="master-sheet-id" className="text-sm font-medium text-foreground">
+              Master Spreadsheet ID
+            </label>
+            <div className="flex gap-2">
+              <Input
+                id="master-sheet-id"
+                type="text"
+                value={masterSheetId}
+                onChange={(e) => {
+                  // If the ID is manually edited, the previously-known URL can become stale.
+                  setMasterSheetId(e.target.value);
+                  setMasterSheetUrl('');
+                }}
+                placeholder="Enter spreadsheet ID (e.g., 1xyz...)"
+                disabled={exportState === 'exporting'}
+                className="flex-1"
+              />
+              <Button
+                variant="outline"
+                onClick={handleSaveMasterSheet}
+                disabled={exportState === 'exporting' || !masterSheetId.trim()}
+              >
+                Save
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleClearMasterSheet}
+                disabled={exportState === 'exporting'}
+              >
+                Clear
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Find the spreadsheet ID in the URL: https://docs.google.com/spreadsheets/d/<strong>[ID]</strong>/edit
+            </p>
+            {masterSheetUrl && (
+              <a
+                href={masterSheetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-primary hover:underline"
+              >
+                Open Master Sheet →
+              </a>
+            )}
+          </div>
 
-      {/* Sheet Tab Name Input */}
-      <div className="space-y-2">
-        <label
-          htmlFor="sheet-tab-name"
-          className="text-sm font-medium text-foreground"
-        >
-          Sheet Tab Name
-        </label>
-        <Input
-          id="sheet-tab-name"
-          type="text"
-          value={sheetTabName}
-          onChange={(e) => setSheetTabName(e.target.value)}
-          placeholder="Transactions"
-          disabled={exportState === "exporting"}
-        />
-        <p className="text-xs text-muted-foreground">
-          Transactions will be written to this tab within the spreadsheet
-        </p>
+          {/* Sheet Tab Name */}
+          <div className="space-y-2">
+            <label htmlFor="sheet-tab-name" className="text-sm font-medium text-foreground">
+              Sheet Tab Name
+            </label>
+            <Input
+              id="sheet-tab-name"
+              type="text"
+              value={sheetTabName}
+              onChange={(e) => setSheetTabName(e.target.value)}
+              placeholder="Enter tab name (e.g., Transactions)"
+              disabled={exportState === 'exporting'}
+            />
+            <p className="text-xs text-muted-foreground">
+              The name of the tab to append transactions to
+            </p>
+          </div>
+        </>
+      )}
       </div>
 
       {/* Export Button */}
@@ -336,16 +494,15 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
         <Button
           onClick={handleExport}
           disabled={
-            !selectedFolder ||
-            !sheetName.trim() ||
+            (exportMode === 'create' && (!selectedFolder || !sheetName.trim())) ||
+            (exportMode === 'append' && (!masterSheetId.trim() || !sheetTabName.trim())) ||
             transactions.length === 0 ||
-            exportState === "selecting"
+            exportState === 'selecting'
           }
           className="w-full gap-2"
         >
           <FileSpreadsheet className="w-4 h-4" />
-          Export {transactions.length} Transaction
-          {transactions.length !== 1 ? "s" : ""} to Google Sheets
+          {exportMode === 'create' ? 'Create & Export' : 'Append'} {transactions.length} Transaction{transactions.length !== 1 ? 's' : ''}
         </Button>
       )}
 
@@ -353,7 +510,7 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
         <div className="flex items-center justify-center gap-3 py-4 rounded-lg bg-primary/5 border border-primary/20">
           <Loader2 className="w-5 h-5 animate-spin text-primary" />
           <span className="text-sm font-medium text-foreground">
-            Creating Google Sheet...
+            {exportMode === 'create' ? 'Creating Google Sheet...' : 'Appending to Master Sheet...'}
           </span>
         </div>
       )}
@@ -363,7 +520,7 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400" />
             <span className="text-sm font-medium text-green-900 dark:text-green-100">
-              Successfully exported to Google Sheets!
+              {exportMode === 'create' ? 'Successfully exported to Google Sheets!' : `Appended ${rowsAdded} row(s), skipped ${rowsSkipped} duplicate(s)`}
             </span>
           </div>
           <div className="flex gap-2">

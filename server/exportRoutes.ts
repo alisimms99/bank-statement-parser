@@ -1,5 +1,18 @@
 import type { Express } from "express";
+<<<<<<< cursor/transaction-append-duplication-fix-822f
 import { createHash, randomUUID } from "crypto";
+=======
+import { randomUUID } from "crypto";
+import {
+  hashTransaction,
+  getExistingHashes,
+  ensureHashesSheet,
+  appendHashes,
+  filterDuplicates,
+  acquireSpreadsheetLock,
+  releaseSpreadsheetLock,
+} from "./sheetsExport";
+>>>>>>> main
 import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
 import type { NormalizedTransaction } from "@shared/types";
@@ -557,6 +570,7 @@ export function registerExportRoutes(app: Express): void {
   /**
    * POST /api/export/sheets
    * Export transactions to Google Sheets
+   * Supports both 'create' and 'append' modes
    */
   app.post("/api/export/sheets", requireAuth, async (req, res) => {
     try {
@@ -564,6 +578,7 @@ export function registerExportRoutes(app: Express): void {
         transactions,
         folderId,
         sheetName,
+<<<<<<< cursor/transaction-append-duplication-fix-822f
         spreadsheetId: providedSpreadsheetId,
         mode,
       } = req.body;
@@ -572,8 +587,17 @@ export function registerExportRoutes(app: Express): void {
         (typeof mode === "string" && mode.toLowerCase() === "append") ||
         (typeof providedSpreadsheetId === "string" && providedSpreadsheetId.length > 0);
       const { transactions, folderId, sheetName, sheetTabName } = req.body;
+=======
+        mode = "create",
+        spreadsheetId: existingSpreadsheetId,
+        sheetTabName,
+      } = req.body ?? {};
+
+>>>>>>> main
       const finalSheetTabName =
-        typeof sheetTabName === "string" && sheetTabName.trim() ? sheetTabName.trim() : "Transactions";
+        typeof sheetTabName === "string" && sheetTabName.trim()
+          ? sheetTabName.trim()
+          : "Transactions";
 
       const escapeSheetTabNameForA1 = (tabName: string) => tabName.replace(/'/g, "''");
 
@@ -584,17 +608,43 @@ export function registerExportRoutes(app: Express): void {
         });
       }
 
+<<<<<<< cursor/transaction-append-duplication-fix-822f
       if (!isAppendMode && (!folderId || typeof folderId !== "string")) {
+=======
+      // folderId is only required for 'create' mode
+      if (mode === 'create' && (!folderId || typeof folderId !== "string")) {
+>>>>>>> main
         return res.status(400).json({
           error: "Invalid request",
-          message: "folderId is required",
+          message: "folderId is required for create mode",
         });
       }
 
+<<<<<<< cursor/transaction-append-duplication-fix-822f
       if (!isAppendMode && (!sheetName || typeof sheetName !== "string")) {
+=======
+      // spreadsheetId is required for 'append' mode
+      if (mode === 'append' && (!existingSpreadsheetId || typeof existingSpreadsheetId !== "string")) {
+>>>>>>> main
         return res.status(400).json({
           error: "Invalid request",
-          message: "sheetName is required",
+          message: "spreadsheetId is required for append mode",
+        });
+      }
+
+      // Validate mode
+      if (mode !== 'create' && mode !== 'append') {
+        return res.status(400).json({
+          error: "Invalid request",
+          message: "mode must be 'create' or 'append'",
+        });
+      }
+
+      // sheetName is only required for 'create' mode
+      if (mode === 'create' && (!sheetName || typeof sheetName !== "string")) {
+        return res.status(400).json({
+          error: "Invalid request",
+          message: "sheetName is required for create mode",
         });
       }
 
@@ -630,7 +680,137 @@ export function registerExportRoutes(app: Express): void {
         access_token: session.accessToken,
       });
 
-      // Create a new spreadsheet in the specified folder
+      let spreadsheetId: string;
+      let sheetUrl: string;
+      let rowsAdded = 0;
+      let rowsSkipped = 0;
+
+      if (mode === 'append') {
+        // APPEND MODE: Add transactions to existing spreadsheet
+        spreadsheetId = existingSpreadsheetId!;
+
+        // Get the spreadsheet URL
+        const metadataResponse = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
+          {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${session.accessToken}`,
+            },
+          }
+        );
+
+        if (!metadataResponse.ok) {
+          throw new Error("Failed to access spreadsheet. Please check the spreadsheet ID and permissions.");
+        }
+
+        const metadata = await metadataResponse.json();
+        sheetUrl = metadata.spreadsheetUrl;
+
+        // Ensure Hashes sheet exists before acquiring lock
+        await ensureHashesSheet(spreadsheetId, session.accessToken);
+
+        // Acquire cooperative spreadsheet lock to serialize append operations
+        const lock = await acquireSpreadsheetLock({
+          spreadsheetId,
+          accessToken: session.accessToken,
+          lockName: "APPEND_LOCK",
+          ttlMs: 60_000,
+          maxWaitMs: 15_000,
+        });
+        try {
+          // Get existing hashes for duplicate detection (inside lock)
+          const existingHashes = await getExistingHashes(spreadsheetId, session.accessToken);
+
+          // Filter out duplicates
+          const { uniqueTransactions, duplicateCount, newHashes } = filterDuplicates(
+            transactions,
+            existingHashes
+          );
+
+          rowsSkipped = duplicateCount;
+
+          if (uniqueTransactions.length > 0) {
+            // Prepare data for the spreadsheet
+            const rows = uniqueTransactions.map((tx: CanonicalTransaction) => [
+              tx.date ?? tx.posted_date ?? "",
+              tx.description || "",
+              tx.payee || "",
+              tx.debit?.toString() || "",
+              tx.credit?.toString() || "",
+              tx.balance?.toString() || "",
+              tx.account_id || "",
+              tx.source_bank || "",
+              tx.statement_period?.start || "",
+              tx.statement_period?.end || "",
+            ]);
+
+            // Append transactions to the specified sheet tab
+            const appendRange = `'${escapeSheetTabNameForA1(finalSheetTabName)}'!A:A`;
+            const appendResponse = await fetch(
+              `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(appendRange)}:append?valueInputOption=RAW`,
+              {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${session.accessToken}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  values: rows,
+                }),
+              }
+            );
+
+            if (!appendResponse.ok) {
+              const error = await appendResponse.json();
+              throw new Error(error.error?.message || "Failed to append data to spreadsheet");
+            }
+
+            // Append new hashes to the Hashes sheet
+            await appendHashes(spreadsheetId, session.accessToken, newHashes);
+
+            rowsAdded = uniqueTransactions.length;
+          }
+        } finally {
+          // Always attempt to release the lock
+          await releaseSpreadsheetLock({
+            spreadsheetId,
+            accessToken: session.accessToken,
+            namedRangeId: lock.namedRangeId,
+          }).catch(() => void 0);
+        }
+
+        logEvent("export_sheets", {
+          exportId: spreadsheetId,
+          success: true,
+          status: 200,
+          mode: 'append',
+          transactionCount: transactions.length,
+          rowsAdded,
+          rowsSkipped,
+          sheetTabName,
+        });
+
+        recordExportEvent({
+          exportId: spreadsheetId,
+          format: "sheets" as ExportFormat,
+          transactionCount: rowsAdded,
+          timestamp: Date.now(),
+          success: true,
+        });
+
+        return res.json({
+          success: true,
+          spreadsheetId,
+          sheetUrl,
+          mode: 'append',
+          rowsAdded,
+          rowsSkipped,
+          transactionCount: transactions.length,
+        });
+      }
+
+      // CREATE MODE: Create a new spreadsheet in the specified folder
       const createResponse = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
         method: "POST",
         headers: {
@@ -657,8 +837,8 @@ export function registerExportRoutes(app: Express): void {
       }
 
       const spreadsheet = await createResponse.json();
-      const spreadsheetId = spreadsheet.spreadsheetId;
-      const sheetUrl = spreadsheet.spreadsheetUrl;
+      spreadsheetId = spreadsheet.spreadsheetId;
+      sheetUrl = spreadsheet.spreadsheetUrl;
 
       // Move the spreadsheet to the specified folder using Drive API
       const moveResponse = await fetch(
@@ -988,15 +1168,27 @@ export function registerExportRoutes(app: Express): void {
         }
       }
 
+      // Create Hashes sheet and store initial hashes for duplicate detection
+      await ensureHashesSheet(spreadsheetId, session.accessToken);
+      const initialHashes = transactions.map(tx => hashTransaction(tx));
+      await appendHashes(spreadsheetId, session.accessToken, initialHashes);
+
+      rowsAdded = transactions.length;
+
       logEvent("export_sheets", {
         exportId: spreadsheetId,
         success: true,
         status: 200,
+<<<<<<< cursor/transaction-append-duplication-fix-822f
         transactionCount: appendedCount,
         skippedDuplicateCount,
         sheetName: isAppendMode ? undefined : sheetName,
         folderId: isAppendMode ? undefined : folderId,
+=======
+        mode: 'create',
+>>>>>>> main
         transactionCount: transactions.length,
+        rowsAdded,
         sheetName,
         sheetTabName: finalSheetTabName,
         folderId,
@@ -1014,8 +1206,15 @@ export function registerExportRoutes(app: Express): void {
         success: true,
         spreadsheetId,
         sheetUrl,
+<<<<<<< cursor/transaction-append-duplication-fix-822f
         appendedCount,
         skippedDuplicateCount,
+=======
+        mode: 'create',
+        rowsAdded,
+        rowsSkipped: 0,
+        transactionCount: transactions.length,
+>>>>>>> main
       });
     } catch (error) {
       logEvent(
