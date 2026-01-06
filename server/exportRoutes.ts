@@ -678,7 +678,9 @@ export function registerExportRoutes(app: Express): void {
         );
 
         const existingHashes = new Set<string>(
-          (hashesResponse.values || []).map((row: string[]) => row[0])
+          (hashesResponse.values || [])
+            .map((row: string[]) => row?.[0])
+            .filter((v: unknown): v is string => typeof v === "string" && v.length > 0)
         );
 
         const transactionsToAppend: CanonicalTransaction[] = [];
@@ -689,6 +691,8 @@ export function registerExportRoutes(app: Express): void {
           if (!existingHashes.has(hash)) {
             transactionsToAppend.push(tx);
             hashesToAppend.push(hash);
+            // Prevent duplicates within the same request payload from being appended twice.
+            existingHashes.add(hash);
           } else {
             skippedDuplicateCount++;
           }
