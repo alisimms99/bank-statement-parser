@@ -209,37 +209,46 @@ export async function cleanTransactions(
   const approxCostUsd = estimateCostUsd(usage);
 
   let result: CleanupResult | null = null;
+  let responseParseOrShapeError: { type: "parse_error" | "shape_error"; message: string } | null =
+    null;
   if (response) {
+    const content = response.choices?.[0]?.message?.content;
+    const raw =
+      typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? content.map(p => ("text" in p ? p.text : "")).join("\n")
+          : "";
+
     try {
-      const content = response.choices?.[0]?.message?.content;
-      const raw =
-        typeof content === "string"
-          ? content
-          : Array.isArray(content)
-            ? content.map(p => ("text" in p ? p.text : "")).join("\n")
-            : "";
-      result = JSON.parse(raw) as CleanupResult;
+      const parsed: unknown = JSON.parse(raw);
+      if (isCleanupResult(parsed)) {
+        result = parsed;
+      } else {
+        result = null;
+        responseParseOrShapeError = {
+          type: "shape_error",
+          message: "LLM response JSON did not match CleanupResult shape",
+        };
+      }
     } catch (error) {
-      // Malformed response
-      const parseError = error instanceof Error ? error.message : String(error);
+      result = null;
+      responseParseOrShapeError = {
+        type: "parse_error",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    if (responseParseOrShapeError?.type === "parse_error") {
       logEvent("ai_cleanup_parse_error", {
-        error: parseError,
+        error: responseParseOrShapeError.message,
         inputCount: transactions.length,
       });
-      result = null;
-    }
-    try {
-      const content = response.choices?.[0]?.message?.content;
-      const raw =
-        typeof content === "string"
-          ? content
-          : Array.isArray(content)
-            ? content.map(p => ("text" in p ? p.text : "")).join("\n")
-            : "";
-      const parsed: unknown = JSON.parse(raw);
-      result = isCleanupResult(parsed) ? parsed : null;
-    } catch {
-      result = null;
+    } else if (responseParseOrShapeError?.type === "shape_error") {
+      logEvent("ai_cleanup_shape_error", {
+        error: responseParseOrShapeError.message,
+        inputCount: transactions.length,
+      });
     }
   }
 
@@ -248,7 +257,13 @@ export async function cleanTransactions(
   let fallbackReason: string | null = null;
   if (neededDeterministicFallback) {
     // If the API threw, it's an API error; otherwise, a parse/shape error
-    fallbackReason = llmError ? "api_error" : response ? "parse_error" : "api_error";
+    fallbackReason = llmError
+      ? "api_error"
+      : responseParseOrShapeError?.type === "shape_error"
+        ? "shape_error"
+        : response
+          ? "parse_error"
+          : "api_error";
   }
 
   // Fallback: lightweight deterministic cleanup if LLM failed
