@@ -545,17 +545,24 @@ export function registerExportRoutes(app: Express): void {
       }
 
       // 5. Update Import Log
+      // Group transactions by period once for better performance
+      const transactionsByPeriod = new Map<string, number>();
+      for (const tx of transactions) {
+        const txDate = tx.date || tx.posted_date;
+        if (!txDate) continue;
+        
+        // Extract YYYY-MM from ISO date format (YYYY-MM-DD)
+        const periodMatch = txDate.match(/^(\d{4}-\d{2})/);
+        if (!periodMatch) continue;
+        
+        const txPeriod = periodMatch[1];
+        transactionsByPeriod.set(txPeriod, (transactionsByPeriod.get(txPeriod) || 0) + 1);
+      }
+
       for (let i = 0; i < statement_periods.length; i++) {
         const period = statement_periods[i];
         if (newPeriods.includes(period)) {
-          // Count transactions for this specific period
-          const periodTransactionCount = transactions.filter((tx: CanonicalTransaction) => {
-            const txDate = tx.date || tx.posted_date;
-            if (!txDate) return false;
-            // Extract YYYY-MM from transaction date
-            const txPeriod = txDate.substring(0, 7);
-            return txPeriod === period;
-          }).length;
+          const periodTransactionCount = transactionsByPeriod.get(period) || 0;
 
           await storeImportLog({
             userId: user.id,
