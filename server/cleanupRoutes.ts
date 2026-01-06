@@ -72,7 +72,9 @@ export function registerCleanupRoutes(app: Express): void {
       }));
 
       logEvent("ai_cleanup_start", { count: transactions.length });
-      const result = await cleanTransactions(transactions);
+      // Pass userId if available (database user has id property)
+      const userId = req.user && 'id' in req.user ? req.user.id : undefined;
+      const result = await cleanTransactions(transactions, userId);
       return res.json(result);
     } catch (error) {
       console.error("[/api/cleanup] Failed:", error);
