@@ -228,18 +228,27 @@ export async function cleanTransactions(
       });
       result = null;
     }
-  try {
-    const content = response.choices?.[0]?.message?.content;
-    const raw =
-      typeof content === "string"
-        ? content
-        : Array.isArray(content)
-          ? content.map(p => ("text" in p ? p.text : "")).join("\n")
-          : "";
-    const parsed: unknown = JSON.parse(raw);
-    result = isCleanupResult(parsed) ? parsed : null;
-  } catch {
-    result = null;
+    try {
+      const content = response.choices?.[0]?.message?.content;
+      const raw =
+        typeof content === "string"
+          ? content
+          : Array.isArray(content)
+            ? content.map(p => ("text" in p ? p.text : "")).join("\n")
+            : "";
+      const parsed: unknown = JSON.parse(raw);
+      result = isCleanupResult(parsed) ? parsed : null;
+    } catch {
+      result = null;
+    }
+  }
+
+  // Capture fallback state BEFORE running the fallback block so logging is accurate
+  const neededDeterministicFallback = !result;
+  let fallbackReason: string | null = null;
+  if (neededDeterministicFallback) {
+    // If the API threw, it's an API error; otherwise, a parse/shape error
+    fallbackReason = llmError ? "api_error" : response ? "parse_error" : "api_error";
   }
 
   // Fallback: lightweight deterministic cleanup if LLM failed
@@ -261,13 +270,7 @@ export async function cleanTransactions(
     result = { cleaned, removed, flagged };
   }
 
-  const usedDeterministicFallback = response === null || result === null;
-  let fallbackReason: string | null = null;
-  if (llmError) {
-    fallbackReason = "api_error";
-  } else if (response && !result) {
-    fallbackReason = "parse_error";
-  }
+  const usedDeterministicFallback = neededDeterministicFallback;
 
   logEvent("ai_cleanup_complete", {
     inputCount: transactions.length,
