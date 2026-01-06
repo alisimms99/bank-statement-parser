@@ -21,13 +21,10 @@ export function registerQuickbooksRoutes(app: Express) {
   app.post("/api/quickbooks/upload", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user as { id?: number; openId?: string } | undefined;
-      if (!user || !user.id) {
-        // QuickBooks history requires a database user with an id
-        // SessionUser objects (when DB is unavailable) lack the id field
-        return res.status(503).json({
-          error: "Database required for QuickBooks upload. Please try again later.",
-        });
+      if (!user) {
+        return res.status(401).json({ error: "Authentication required" });
       }
+
       // Ensure we have a numeric userId to maintain data integrity
       let userId: number | undefined = typeof user.id === "number" ? user.id : undefined;
       if (!userId && user.openId) {
@@ -35,18 +32,11 @@ export function registerQuickbooksRoutes(app: Express) {
         const dbUser = await getUserByOpenId(user.openId);
         userId = dbUser?.id;
       }
+
       if (!userId) {
-        return res
-          .status(400)
-          .json({ error: "Authenticated user is not provisioned in database (missing user id)" });
-      const user = (req as any).user;
-      let userId: number | undefined = user?.id;
-      if (!userId && user?.openId) {
-        const dbUser = await getUserByOpenId(user.openId);
-        userId = dbUser?.id as number | undefined;
-      }
-      if (!userId) {
-        return res.status(401).json({ error: "Authentication required" });
+        return res.status(400).json({
+          error: "Authenticated user is not provisioned in database (missing user id)",
+        });
       }
 
       const parsed = quickbooksUploadSchema.safeParse(req.body);
