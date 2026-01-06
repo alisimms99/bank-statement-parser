@@ -59,8 +59,12 @@ function toSheetsRow(tx: CanonicalTransaction): string[] {
 }
 
 function computeTransactionHash(tx: CanonicalTransaction): string {
-  // Hash exactly what we write to Sheets, so the dedupe key matches the sheet rows.
-  const stable = toSheetsRow(tx).join("\u001f");
+  // Hash a stable projection that ignores volatile fields (source file, import date)
+  const row = toSheetsRow(tx);
+  // Indices: 0 Date, 1 Normalized Desc, 2 Original Desc, 3 Amount, 4 Balance, 5 Category, 6 Source File, 7 Import Date
+  row[6] = ""; // ignore source file
+  row[7] = ""; // ignore import date
+  const stable = row.join("\u001f");
   return createHash("sha256").update(stable, "utf8").digest("hex");
 }
 
@@ -294,16 +298,26 @@ export function registerExportRoutes(app: Express): void {
    */
   app.post("/api/sheets/validate", requireAuth, async (req, res) => {
     try {
+      const user = (req as any).user;
       const { account_id, statement_periods } = req.body;
-      if (!account_id || !statement_periods || !Array.isArray(statement_periods)) {
+      const accountIdNum: number =
+        typeof account_id === "string" ? Number.parseInt(account_id, 10) : account_id;
+      if (Number.isNaN(accountIdNum) || !statement_periods || !Array.isArray(statement_periods)) {
         return res.status(400).json({ error: "Missing account_id or statement_periods" });
+      }
+
+      // Ensure the account belongs to the requester
+      const accounts = await getAccounts(user.id);
+      const account = accounts.find((a) => a.id === accountIdNum);
+      if (!account) {
+        return res.status(404).json({ error: "Account not found or access denied" });
       }
 
       const warnings = [];
       const new_periods = [];
 
       for (const period of statement_periods) {
-        const exists = await checkImportExists(account_id, period);
+        const exists = await checkImportExists(accountIdNum, period);
         if (exists) {
           warnings.push({ period, status: "already_imported" });
         } else {
@@ -336,7 +350,9 @@ export function registerExportRoutes(app: Express): void {
 
       // 1. Validate account
       const accounts = await getAccounts(user.id);
-      const account = accounts.find(a => a.id === account_id);
+      const accountIdNum: number =
+        typeof account_id === "string" ? Number.parseInt(account_id, 10) : account_id;
+      const account = accounts.find(a => a.id === accountIdNum);
       if (!account) {
         return res.status(404).json({ error: "Account not found or access denied" });
       }
@@ -344,7 +360,7 @@ export function registerExportRoutes(app: Express): void {
       // 2. Check for duplicate periods
       const newPeriods = [];
       for (const period of statement_periods) {
-        const exists = await checkImportExists(account_id, period);
+        const exists = await checkImportExists(accountIdNum, period);
         if (!exists) {
           newPeriods.push(period);
         }

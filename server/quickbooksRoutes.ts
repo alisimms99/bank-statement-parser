@@ -2,7 +2,7 @@ import { Express } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { requireAuth } from "./middleware/auth";
-import { storeQuickbooksHistory } from "./db";
+import { storeQuickbooksHistory, getUserByOpenId } from "./db";
 import { logEvent } from "./_core/log";
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -27,6 +27,13 @@ export function registerQuickbooksRoutes(app: Express) {
         return res.status(503).json({ 
           error: "User database record required for QuickBooks operations." 
         });
+      let userId: number | undefined = user?.id;
+      if (!userId && user?.openId) {
+        const dbUser = await getUserByOpenId(user.openId);
+        userId = dbUser?.id as number | undefined;
+      }
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
       }
 
       const parsed = quickbooksUploadSchema.safeParse(req.body);
@@ -36,13 +43,13 @@ export function registerQuickbooksRoutes(app: Express) {
 
       const entries = parsed.data.map(entry => ({
         ...entry,
-        userId: user.id,
+        userId,
       }));
 
       await storeQuickbooksHistory(entries);
 
       logEvent("quickbooks_upload_success", {
-        userId: user.id,
+        userId,
         entryCount: entries.length,
       });
 

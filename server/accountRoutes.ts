@@ -51,10 +51,20 @@ export function registerAccountRoutes(app: Express) {
   app.patch("/api/accounts/:id", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const id = parseInt(req.params.id);
+      const id = Number.parseInt(req.params.id, 10);
+      if (Number.isNaN(id) || id <= 0) {
+        return res.status(400).json({ error: "Invalid account id" });
+      }
       const parsed = accountSchema.partial().safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid account data", details: parsed.error });
+      }
+
+      // Verify ownership before update
+      const accounts = await getAccounts(user.id);
+      const existing = accounts.find((a) => a.id === id);
+      if (!existing) {
+        return res.status(404).json({ error: "Account not found" });
       }
 
       await updateAccount(id, user.id, parsed.data);
@@ -68,7 +78,16 @@ export function registerAccountRoutes(app: Express) {
   app.delete("/api/accounts/:id", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const id = parseInt(req.params.id);
+      const id = Number.parseInt(req.params.id, 10);
+      if (Number.isNaN(id) || id <= 0) {
+        return res.status(400).json({ error: "Invalid account id" });
+      }
+      // Verify ownership before delete
+      const accounts = await getAccounts(user.id);
+      const existing = accounts.find((a) => a.id === id);
+      if (!existing) {
+        return res.status(404).json({ error: "Account not found" });
+      }
       await updateAccount(id, user.id, { isActive: 0 });
       res.json({ success: true });
     } catch (error) {
@@ -90,11 +109,19 @@ export function registerAccountRoutes(app: Express) {
   // Check if statement already imported
   app.get("/api/imports/check", requireAuth, async (req, res) => {
     try {
-      const accountId = parseInt(req.query.account_id as string);
+      const user = (req as any).user;
+      const accountId = Number.parseInt(req.query.account_id as string, 10);
       const period = req.query.period as string;
       
-      if (!accountId || !period) {
+      if (Number.isNaN(accountId) || !period) {
         return res.status(400).json({ error: "Missing account_id or period" });
+      }
+
+      // Ensure the account belongs to the authenticated user
+      const accounts = await getAccounts(user.id);
+      const owned = accounts.some((a) => a.id === accountId);
+      if (!owned) {
+        return res.status(404).json({ error: "Account not found" });
       }
 
       const exists = await checkImportExists(accountId, period);
