@@ -548,13 +548,22 @@ export function registerExportRoutes(app: Express): void {
       for (let i = 0; i < statement_periods.length; i++) {
         const period = statement_periods[i];
         if (newPeriods.includes(period)) {
+          // Count transactions for this specific period
+          const periodTransactionCount = transactions.filter((tx: CanonicalTransaction) => {
+            const txDate = tx.date || tx.posted_date;
+            if (!txDate) return false;
+            // Extract YYYY-MM from transaction date
+            const txPeriod = txDate.substring(0, 7);
+            return txPeriod === period;
+          }).length;
+
           await storeImportLog({
             userId: user.id,
             accountId: account.id,
             statementPeriod: period,
             statementYear: year,
             fileHash: file_hashes?.[i] || null,
-            transactionCount: transactions.length,
+            transactionCount: periodTransactionCount,
             sheetTabName: tabName,
           });
         }
