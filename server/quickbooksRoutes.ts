@@ -21,8 +21,12 @@ export function registerQuickbooksRoutes(app: Express) {
   app.post("/api/quickbooks/upload", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user as { id?: number; openId?: string } | undefined;
-      if (!user) {
-        return res.status(401).json({ error: "Authentication required" });
+      if (!user || !user.id) {
+        // QuickBooks history requires a database user with an id
+        // SessionUser objects (when DB is unavailable) lack the id field
+        return res.status(503).json({
+          error: "Database required for QuickBooks upload. Please try again later.",
+        });
       }
       // Ensure we have a numeric userId to maintain data integrity
       let userId: number | undefined = typeof user.id === "number" ? user.id : undefined;
