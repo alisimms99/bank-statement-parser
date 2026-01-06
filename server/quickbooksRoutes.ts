@@ -34,9 +34,9 @@ export function registerQuickbooksRoutes(app: Express) {
       }
 
       if (!userId) {
-        return res.status(400).json({
-          error: "Authenticated user is not provisioned in database (missing user id)",
-        });
+        return res
+          .status(400)
+          .json({ error: "Authenticated user is not provisioned in database (missing user id)" });
       }
 
       const parsed = quickbooksUploadSchema.safeParse(req.body);
