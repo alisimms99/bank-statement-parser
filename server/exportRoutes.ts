@@ -6,6 +6,8 @@ import {
   ensureHashesSheet,
   appendHashes,
   filterDuplicates,
+  acquireSpreadsheetLock,
+  releaseSpreadsheetLock,
 } from "./sheetsExport";
 import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
@@ -609,60 +611,77 @@ export function registerExportRoutes(app: Express): void {
         const metadata = await metadataResponse.json();
         sheetUrl = metadata.spreadsheetUrl;
 
-        // Ensure Hashes sheet exists
+        // Ensure Hashes sheet exists before acquiring lock
         await ensureHashesSheet(spreadsheetId, session.accessToken);
 
-        // Get existing hashes for duplicate detection
-        const existingHashes = await getExistingHashes(spreadsheetId, session.accessToken);
+        // Acquire cooperative spreadsheet lock to serialize append operations
+        const lock = await acquireSpreadsheetLock({
+          spreadsheetId,
+          accessToken: session.accessToken,
+          lockName: "APPEND_LOCK",
+          ttlMs: 60_000,
+          maxWaitMs: 15_000,
+        });
+        try {
+          // Get existing hashes for duplicate detection (inside lock)
+          const existingHashes = await getExistingHashes(spreadsheetId, session.accessToken);
 
-        // Filter out duplicates
-        const { uniqueTransactions, duplicateCount, newHashes } = filterDuplicates(
-          transactions,
-          existingHashes
-        );
-
-        rowsSkipped = duplicateCount;
-
-        if (uniqueTransactions.length > 0) {
-          // Prepare data for the spreadsheet
-          const rows = uniqueTransactions.map((tx: CanonicalTransaction) => [
-            tx.date ?? tx.posted_date ?? "",
-            tx.description || "",
-            tx.payee || "",
-            tx.debit?.toString() || "",
-            tx.credit?.toString() || "",
-            tx.balance?.toString() || "",
-            tx.account_id || "",
-            tx.source_bank || "",
-            tx.statement_period?.start || "",
-            tx.statement_period?.end || "",
-          ]);
-
-          // Append transactions to the specified sheet tab
-          const appendRange = `'${escapeSheetTabNameForA1(finalSheetTabName)}'!A:A`;
-          const appendResponse = await fetch(
-            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(appendRange)}:append?valueInputOption=RAW`,
-            {
-              method: "POST",
-              headers: {
-                "Authorization": `Bearer ${session.accessToken}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                values: rows,
-              }),
-            }
+          // Filter out duplicates
+          const { uniqueTransactions, duplicateCount, newHashes } = filterDuplicates(
+            transactions,
+            existingHashes
           );
 
-          if (!appendResponse.ok) {
-            const error = await appendResponse.json();
-            throw new Error(error.error?.message || "Failed to append data to spreadsheet");
+          rowsSkipped = duplicateCount;
+
+          if (uniqueTransactions.length > 0) {
+            // Prepare data for the spreadsheet
+            const rows = uniqueTransactions.map((tx: CanonicalTransaction) => [
+              tx.date ?? tx.posted_date ?? "",
+              tx.description || "",
+              tx.payee || "",
+              tx.debit?.toString() || "",
+              tx.credit?.toString() || "",
+              tx.balance?.toString() || "",
+              tx.account_id || "",
+              tx.source_bank || "",
+              tx.statement_period?.start || "",
+              tx.statement_period?.end || "",
+            ]);
+
+            // Append transactions to the specified sheet tab
+            const appendRange = `'${escapeSheetTabNameForA1(finalSheetTabName)}'!A:A`;
+            const appendResponse = await fetch(
+              `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(appendRange)}:append?valueInputOption=RAW`,
+              {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${session.accessToken}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  values: rows,
+                }),
+              }
+            );
+
+            if (!appendResponse.ok) {
+              const error = await appendResponse.json();
+              throw new Error(error.error?.message || "Failed to append data to spreadsheet");
+            }
+
+            // Append new hashes to the Hashes sheet
+            await appendHashes(spreadsheetId, session.accessToken, newHashes);
+
+            rowsAdded = uniqueTransactions.length;
           }
-
-          // Append new hashes to the Hashes sheet
-          await appendHashes(spreadsheetId, session.accessToken, newHashes);
-
-          rowsAdded = uniqueTransactions.length;
+        } finally {
+          // Always attempt to release the lock
+          await releaseSpreadsheetLock({
+            spreadsheetId,
+            accessToken: session.accessToken,
+            namedRangeId: lock.namedRangeId,
+          }).catch(() => void 0);
         }
 
         logEvent("export_sheets", {

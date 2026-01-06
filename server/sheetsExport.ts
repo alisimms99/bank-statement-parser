@@ -192,6 +192,274 @@ export async function appendHashes(
 }
 
 /**
+ * Spreadsheet-level cooperative lock using a Named Range on the Hashes sheet.
+ *
+ * Rationale:
+ * - Google Sheets API does not provide atomic read-then-append semantics.
+ * - We serialize append flows by creating a unique NamedRange (constant name).
+ * - Creation of a duplicate NamedRange fails, which we interpret as "locked".
+ * - We retry with backoff. As a safety valve, if a stale lock is detected
+ *   (based on a timestamp written to Hashes!Z1), we delete it.
+ *
+ * NOTE: This is best-effort to prevent duplicate appends in concurrent requests.
+ */
+export interface SpreadsheetLock {
+  namedRangeId: string;
+  lockName: string;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Acquire a cooperative lock for append operations.
+ * Returns the created namedRangeId which must be passed to releaseSpreadsheetLock.
+ *
+ * - lockName: constant, spreadsheet-scoped (default: "APPEND_LOCK")
+ * - ttlMs: if an existing lock is older than ttlMs, it is considered stale and removed
+ * - maxWaitMs: maximum total time to wait before failing to acquire
+ */
+export async function acquireSpreadsheetLock(params: {
+  spreadsheetId: string;
+  accessToken: string;
+  lockName?: string;
+  ttlMs?: number;
+  maxWaitMs?: number;
+}): Promise<SpreadsheetLock> {
+  const {
+    spreadsheetId,
+    accessToken,
+    lockName = "APPEND_LOCK",
+    ttlMs = 60_000,
+    maxWaitMs = 15_000,
+  } = params;
+
+  // Ensure Hashes sheet exists so we have a valid target range
+  const hashesSheetId = await ensureHashesSheet(spreadsheetId, accessToken);
+
+  const start = Date.now();
+  let attempt = 0;
+
+  // Helper: try to create the named range lock.
+  const tryCreateLock = async () => {
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              addNamedRange: {
+                namedRange: {
+                  name: lockName,
+                  range: {
+                    sheetId: hashesSheetId,
+                    startRowIndex: 0,
+                    endRowIndex: 1,
+                    startColumnIndex: 0,
+                    endColumnIndex: 1,
+                  },
+                },
+              },
+            },
+          ],
+        }),
+      }
+    );
+
+    if (res.ok) {
+      const data = await res.json();
+      const namedRangeId: string | undefined =
+        data?.replies?.[0]?.addNamedRange?.namedRange?.namedRangeId;
+      if (!namedRangeId) {
+        throw new Error("Lock created but no namedRangeId returned");
+      }
+      // Write lock timestamp to a harmless cell (Z1) for stale lock detection
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+          "Hashes!Z1"
+        )}?valueInputOption=RAW`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            values: [[String(Date.now())]],
+          }),
+        }
+      ).catch(() => {
+        // Non-fatal; continue without timestamp
+      });
+
+      return { namedRangeId, lockName };
+    }
+
+    // Attempt to parse error
+    let message = "";
+    try {
+      const errBody = await res.json();
+      message =
+        errBody?.error?.message ||
+        errBody?.message ||
+        (await res.text()) ||
+        res.statusText;
+    } catch {
+      message = res.statusText || "Unknown error";
+    }
+
+    // If name already exists, treat as locked
+    if (
+      res.status === 400 &&
+      typeof message === "string" &&
+      message.toLowerCase().includes("already exists")
+    ) {
+      return null;
+    }
+
+    // Other errors are fatal
+    throw new Error(`Failed to create lock: ${message}`);
+  };
+
+  // Helper: try to remove stale lock (if TTL exceeded).
+  const tryRemoveStaleLock = async () => {
+    // Read lock timestamp
+    let ts: number | null = null;
+    try {
+      const tsRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+          "Hashes!Z1"
+        )}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      if (tsRes.ok) {
+        const tsData = await tsRes.json();
+        const raw = tsData?.values?.[0]?.[0];
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed)) ts = parsed;
+      }
+    } catch {
+      // ignore
+    }
+
+    const now = Date.now();
+    if (ts && now - ts < ttlMs) {
+      // Not stale yet
+      return false;
+    }
+
+    // Fetch named ranges to get ID
+    const metaRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=namedRanges(namedRangeId,name)`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+    if (!metaRes.ok) return false;
+    const meta = await metaRes.json();
+    const existing = (meta?.namedRanges ?? []).find(
+      (nr: { name?: string }) => nr?.name === lockName
+    );
+    if (!existing?.namedRangeId) return false;
+
+    // Delete the stale lock
+    const delRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              deleteNamedRange: {
+                namedRangeId: existing.namedRangeId,
+              },
+            },
+          ],
+        }),
+      }
+    );
+    return delRes.ok;
+  };
+
+  while (Date.now() - start < maxWaitMs) {
+    const lock = await tryCreateLock();
+    if (lock) {
+      return lock;
+    }
+
+    // Could not acquire due to existing lock.
+    // Attempt stale cleanup once in a while.
+    if (attempt % 3 === 0) {
+      await tryRemoveStaleLock().catch(() => {
+        /* ignore */
+      });
+    }
+
+    attempt++;
+    const backoff = Math.min(1000, 150 + attempt * 100);
+    const jitter = Math.floor(Math.random() * 100);
+    await sleep(backoff + jitter);
+  }
+
+  throw new Error(
+    "Another export is in progress for this spreadsheet. Please try again shortly."
+  );
+}
+
+/**
+ * Release a previously acquired spreadsheet lock.
+ */
+export async function releaseSpreadsheetLock(params: {
+  spreadsheetId: string;
+  accessToken: string;
+  namedRangeId: string;
+}): Promise<void> {
+  const { spreadsheetId, accessToken, namedRangeId } = params;
+  try {
+    await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              deleteNamedRange: {
+                namedRangeId,
+              },
+            },
+          ],
+        }),
+      }
+    );
+  } catch {
+    // Best effort: if release fails, the TTL mechanism will clear stale locks.
+  }
+}
+
+/**
  * Filter out duplicate transactions based on existing hashes
  * Returns: { uniqueTransactions, duplicateCount }
  */
