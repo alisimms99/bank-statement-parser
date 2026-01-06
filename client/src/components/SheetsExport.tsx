@@ -389,11 +389,13 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
                 </div>
               )}
             </div>
-            {!selectedFolder && (
+            {pickerApiError ? (
+              <p className="text-xs text-destructive">{pickerApiError}</p>
+            ) : !selectedFolder ? (
               <p className="text-xs text-muted-foreground">
                 Choose where to save the spreadsheet in your Google Drive
               </p>
-            )}
+            ) : null}
           </div>
 
           {/* Sheet Name Input */}
