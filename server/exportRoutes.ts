@@ -1,18 +1,5 @@
 import type { Express } from "express";
-<<<<<<< cursor/transaction-append-duplication-fix-822f
 import { createHash, randomUUID } from "crypto";
-=======
-import { randomUUID } from "crypto";
-import {
-  hashTransaction,
-  getExistingHashes,
-  ensureHashesSheet,
-  appendHashes,
-  filterDuplicates,
-  acquireSpreadsheetLock,
-  releaseSpreadsheetLock,
-} from "./sheetsExport";
->>>>>>> main
 import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
 import type { NormalizedTransaction } from "@shared/types";
@@ -345,27 +332,11 @@ export function registerExportRoutes(app: Express): void {
         message: "The requested export is not available.",
       });
     }
-
+    
     try {
-      // Convert CanonicalTransaction[] to NormalizedTransaction[] for CSV export
-      const normalizedTransactions: NormalizedTransaction[] = transactions.map(toNormalized);
-      const csv = toCSV(normalizedTransactions, { includeBOM });
-      const timestamp = new Date().toISOString().split("T")[0];
-      const filename = `bank-transactions-${timestamp}.csv`;
+      const csv = toCSV(transactions.map(toNormalized), { includeBOM });
       
-      res.setHeader("Content-Type", "text/csv; charset=utf-8");
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-      res.send(csv);
-
-      logEvent("export_csv", {
-        exportId: id,
-        includeBOM,
-        success: true,
-        status: 200,
-        transactionCount: transactions.length,
-      });
-      
-      // Log successful export
+      logEvent("export_csv", { exportId: id, includeBOM, success: true, status: 200 });
       recordExportEvent({
         exportId: id,
         format: "csv",
@@ -373,12 +344,12 @@ export function registerExportRoutes(app: Express): void {
         timestamp: Date.now(),
         success: true,
       });
+      
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="transactions-${id}.csv"`);
+      res.send(csv);
     } catch (error) {
-      logEvent(
-        "export_csv",
-        { exportId: id, includeBOM, success: false, status: 500, error: serializeError(error) },
-        "error"
-      );
+      logEvent("export_csv", { exportId: id, includeBOM, success: false, status: 500, error: serializeError(error) }, "error");
       
       recordExportEvent({
         exportId: id,
@@ -397,73 +368,8 @@ export function registerExportRoutes(app: Express): void {
   });
 
   /**
-   * POST /api/export/pdf
-   * Export transactions as PDF from request body (for accumulated transactions)
-   */
-  app.post("/api/export/pdf", requireAuth, (req, res) => {
-    // Keep a reference for metrics in the catch block.
-    // If we pass validation, `transactions` is known-good and `length` is accurate.
-    let transactions: unknown;
-    try {
-      ({ transactions } = req.body ?? {});
-      
-      if (!Array.isArray(transactions) || transactions.length === 0) {
-        return res.status(400).json({ 
-          error: "Invalid request",
-          message: "transactions array is required and must not be empty",
-        });
-      }
-
-      // Generate stub PDF buffer
-      const pdfBuffer = generateStubPDF(transactions);
-      const timestamp = new Date().toISOString().split("T")[0];
-      const filename = `bank-transactions-${timestamp}.pdf`;
-      
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-      res.send(pdfBuffer);
-
-      logEvent("export_pdf", {
-        exportId: "combined",
-        success: true,
-        status: 200,
-        transactionCount: transactions.length,
-      });
-      
-      recordExportEvent({
-        exportId: "combined",
-        format: "pdf",
-        transactionCount: transactions.length,
-        timestamp: Date.now(),
-        success: true,
-      });
-    } catch (error) {
-      logEvent("export_pdf", { 
-        exportId: "combined", 
-        success: false, 
-        status: 500, 
-        error: serializeError(error) 
-      }, "error");
-      
-      recordExportEvent({
-        exportId: "combined",
-        format: "pdf",
-        transactionCount: Array.isArray(transactions) ? transactions.length : 0,
-        timestamp: Date.now(),
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
-      
-      res.status(500).json({ 
-        error: "Failed to generate PDF export",
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
-  });
-
-  /**
    * GET /api/export/:id/pdf
-   * Export transactions as PDF (stub implementation)
+   * Export transactions as PDF
    */
   app.get("/api/export/:id/pdf", requireAuth, (req, res) => {
     const { id } = req.params;
@@ -522,25 +428,11 @@ export function registerExportRoutes(app: Express): void {
         message: "The requested export is not available.",
       });
     }
-
+    
     try {
-      // Generate stub PDF buffer (real PDF rendering will be implemented later)
       const pdfBuffer = generateStubPDF(transactions);
-      const timestamp = new Date().toISOString().split("T")[0];
-      const filename = `bank-transactions-${timestamp}.pdf`;
       
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-      res.send(pdfBuffer);
-
-      logEvent("export_pdf", {
-        exportId: id,
-        success: true,
-        status: 200,
-        transactionCount: transactions.length,
-      });
-      
-      // Log successful export
+      logEvent("export_pdf", { exportId: id, success: true, status: 200 });
       recordExportEvent({
         exportId: id,
         format: "pdf",
@@ -548,6 +440,10 @@ export function registerExportRoutes(app: Express): void {
         timestamp: Date.now(),
         success: true,
       });
+      
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="transactions-${id}.pdf"`);
+      res.send(pdfBuffer);
     } catch (error) {
       logEvent("export_pdf", { exportId: id, success: false, status: 500, error: serializeError(error) }, "error");
       
@@ -578,22 +474,15 @@ export function registerExportRoutes(app: Express): void {
         transactions,
         folderId,
         sheetName,
-<<<<<<< cursor/transaction-append-duplication-fix-822f
+        mode = "create",
         spreadsheetId: providedSpreadsheetId,
-        mode,
-      } = req.body;
+        sheetTabName,
+      } = req.body ?? {};
 
       const isAppendMode =
         (typeof mode === "string" && mode.toLowerCase() === "append") ||
         (typeof providedSpreadsheetId === "string" && providedSpreadsheetId.length > 0);
-      const { transactions, folderId, sheetName, sheetTabName } = req.body;
-=======
-        mode = "create",
-        spreadsheetId: existingSpreadsheetId,
-        sheetTabName,
-      } = req.body ?? {};
 
->>>>>>> main
       const finalSheetTabName =
         typeof sheetTabName === "string" && sheetTabName.trim()
           ? sheetTabName.trim()
@@ -608,40 +497,16 @@ export function registerExportRoutes(app: Express): void {
         });
       }
 
-<<<<<<< cursor/transaction-append-duplication-fix-822f
-      if (!isAppendMode && (!folderId || typeof folderId !== "string")) {
-=======
       // folderId is only required for 'create' mode
-      if (mode === 'create' && (!folderId || typeof folderId !== "string")) {
->>>>>>> main
+      if (!isAppendMode && (!folderId || typeof folderId !== "string")) {
         return res.status(400).json({
           error: "Invalid request",
           message: "folderId is required for create mode",
         });
       }
 
-<<<<<<< cursor/transaction-append-duplication-fix-822f
-      if (!isAppendMode && (!sheetName || typeof sheetName !== "string")) {
-=======
-      // spreadsheetId is required for 'append' mode
-      if (mode === 'append' && (!existingSpreadsheetId || typeof existingSpreadsheetId !== "string")) {
->>>>>>> main
-        return res.status(400).json({
-          error: "Invalid request",
-          message: "spreadsheetId is required for append mode",
-        });
-      }
-
-      // Validate mode
-      if (mode !== 'create' && mode !== 'append') {
-        return res.status(400).json({
-          error: "Invalid request",
-          message: "mode must be 'create' or 'append'",
-        });
-      }
-
       // sheetName is only required for 'create' mode
-      if (mode === 'create' && (!sheetName || typeof sheetName !== "string")) {
+      if (!isAppendMode && (!sheetName || typeof sheetName !== "string")) {
         return res.status(400).json({
           error: "Invalid request",
           message: "sheetName is required for create mode",
@@ -675,475 +540,168 @@ export function registerExportRoutes(app: Express): void {
 
       // Initialize Google Sheets API (kept for parity with other Google flows)
       const oauth2Client = new OAuth2Client();
-      oauth2Client.setCredentials({ access_token: session.accessToken });
       oauth2Client.setCredentials({
         access_token: session.accessToken,
       });
 
       let spreadsheetId: string;
       let sheetUrl: string;
-      let rowsAdded = 0;
-      let rowsSkipped = 0;
-
-      if (mode === 'append') {
-        // APPEND MODE: Add transactions to existing spreadsheet
-        spreadsheetId = existingSpreadsheetId!;
-
-        // Get the spreadsheet URL
-        const metadataResponse = await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
-          {
-            method: "GET",
-            headers: {
-              "Authorization": `Bearer ${session.accessToken}`,
-            },
-          }
-        );
-
-        if (!metadataResponse.ok) {
-          throw new Error("Failed to access spreadsheet. Please check the spreadsheet ID and permissions.");
-        }
-
-        const metadata = await metadataResponse.json();
-        sheetUrl = metadata.spreadsheetUrl;
-
-        // Ensure Hashes sheet exists before acquiring lock
-        await ensureHashesSheet(spreadsheetId, session.accessToken);
-
-        // Acquire cooperative spreadsheet lock to serialize append operations
-        const lock = await acquireSpreadsheetLock({
-          spreadsheetId,
-          accessToken: session.accessToken,
-          lockName: "APPEND_LOCK",
-          ttlMs: 60_000,
-          maxWaitMs: 15_000,
-        });
-        try {
-          // Get existing hashes for duplicate detection (inside lock)
-          const existingHashes = await getExistingHashes(spreadsheetId, session.accessToken);
-
-          // Filter out duplicates
-          const { uniqueTransactions, duplicateCount, newHashes } = filterDuplicates(
-            transactions,
-            existingHashes
-          );
-
-          rowsSkipped = duplicateCount;
-
-          if (uniqueTransactions.length > 0) {
-            // Prepare data for the spreadsheet
-            const rows = uniqueTransactions.map((tx: CanonicalTransaction) => [
-              tx.date ?? tx.posted_date ?? "",
-              tx.description || "",
-              tx.payee || "",
-              tx.debit?.toString() || "",
-              tx.credit?.toString() || "",
-              tx.balance?.toString() || "",
-              tx.account_id || "",
-              tx.source_bank || "",
-              tx.statement_period?.start || "",
-              tx.statement_period?.end || "",
-            ]);
-
-            // Append transactions to the specified sheet tab
-            const appendRange = `'${escapeSheetTabNameForA1(finalSheetTabName)}'!A:A`;
-            const appendResponse = await fetch(
-              `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(appendRange)}:append?valueInputOption=RAW`,
-              {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${session.accessToken}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  values: rows,
-                }),
-              }
-            );
-
-            if (!appendResponse.ok) {
-              const error = await appendResponse.json();
-              throw new Error(error.error?.message || "Failed to append data to spreadsheet");
-            }
-
-            // Append new hashes to the Hashes sheet
-            await appendHashes(spreadsheetId, session.accessToken, newHashes);
-
-            rowsAdded = uniqueTransactions.length;
-          }
-        } finally {
-          // Always attempt to release the lock
-          await releaseSpreadsheetLock({
-            spreadsheetId,
-            accessToken: session.accessToken,
-            namedRangeId: lock.namedRangeId,
-          }).catch(() => void 0);
-        }
-
-        logEvent("export_sheets", {
-          exportId: spreadsheetId,
-          success: true,
-          status: 200,
-          mode: 'append',
-          transactionCount: transactions.length,
-          rowsAdded,
-          rowsSkipped,
-          sheetTabName,
-        });
-
-        recordExportEvent({
-          exportId: spreadsheetId,
-          format: "sheets" as ExportFormat,
-          transactionCount: rowsAdded,
-          timestamp: Date.now(),
-          success: true,
-        });
-
-        return res.json({
-          success: true,
-          spreadsheetId,
-          sheetUrl,
-          mode: 'append',
-          rowsAdded,
-          rowsSkipped,
-          transactionCount: transactions.length,
-        });
-      }
-
-      // CREATE MODE: Create a new spreadsheet in the specified folder
-      const createResponse = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${session.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          properties: {
-            title: sheetName,
-          },
-          sheets: [
-            {
-              properties: {
-                title: finalSheetTabName,
-              },
-            },
-          ],
-        }),
-      });
-
-      if (!createResponse.ok) {
-        const error = await createResponse.json();
-        throw new Error(error.error?.message || "Failed to create spreadsheet");
-      }
-
-      const spreadsheet = await createResponse.json();
-      spreadsheetId = spreadsheet.spreadsheetId;
-      sheetUrl = spreadsheet.spreadsheetUrl;
-
-      // Move the spreadsheet to the specified folder using Drive API
-      const moveResponse = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${folderId}&removeParents=root`,
-        {
-          method: "PATCH",
-          headers: {
-            "Authorization": `Bearer ${session.accessToken}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      if (!moveResponse.ok) {
-        console.warn("Failed to move spreadsheet to folder. The spreadsheet was created in the root folder instead. Continuing with export.");
-      }
-
-      // Prepare data for the spreadsheet
-      const headers = [
-        "Date",
-        "Description",
-        "Payee",
-        "Debit",
-        "Credit",
-        "Balance",
-        "Account ID",
-        "Source Bank",
-        "Statement Period Start",
-        "Statement Period End",
-      ];
-
-      const txRows = transactions.map(toSheetsRow);
-      const txHashes = transactions.map(computeTransactionHash);
-
-      let spreadsheetId: string;
-      let sheetUrl: string;
-      let appendedCount = transactions.length;
+      let appendedCount = 0;
       let skippedDuplicateCount = 0;
 
-      if (!isAppendMode) {
-        // Create a new spreadsheet in the specified folder
-        const created = await fetchJsonWithAuth(
-          "https://sheets.googleapis.com/v4/spreadsheets",
-          session.accessToken,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              properties: { title: sheetName },
-              sheets: [{ properties: { title: SHEETS_TRANSACTIONS_SHEET_TITLE } }],
-            }),
-          }
-        );
+      if (isAppendMode) {
+        // APPEND MODE: Add transactions to existing spreadsheet
+        spreadsheetId = providedSpreadsheetId!;
 
-        spreadsheetId = created.spreadsheetId;
-        sheetUrl = created.spreadsheetUrl;
-
-        const transactionsSheetId: number | undefined =
-          created?.sheets?.[0]?.properties?.sheetId ?? 0;
-
-        // Move the spreadsheet to the specified folder using Drive API
-        try {
-          const moveRes = await fetch(
-            `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${folderId}&removeParents=root`,
-            {
-              method: "PATCH",
-              headers: {
-                Authorization: `Bearer ${session.accessToken}`,
-                "Content-Type": "application/json",
-              },
-            }
-          );
-          if (!moveRes.ok) {
-            console.warn(
-              "Failed to move spreadsheet to folder. The spreadsheet was created in the root folder instead. Continuing with export."
-            );
-          }
-        } catch {
-          // Non-fatal: the sheet exists and can still be written.
-          console.warn(
-            "Failed to move spreadsheet to folder due to network error. Continuing with export."
-          );
-      const rows = transactions.map((tx: CanonicalTransaction) => [
-        tx.date ?? tx.posted_date ?? "",
-        tx.description || "",
-        tx.payee || "",
-        tx.debit?.toString() || "",
-        tx.credit?.toString() || "",
-        tx.balance?.toString() || "",
-        tx.account_id || "",
-        tx.source_bank || "",
-        tx.statement_period?.start || "",
-        tx.statement_period?.end || "",
-      ]);
-
-      const allData = [headers, ...rows];
-
-      // Update the spreadsheet with transaction data
-      const range = `'${escapeSheetTabNameForA1(finalSheetTabName)}'!A1`;
-      const updateResponse = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW`,
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${session.accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            values: allData,
-          }),
-        }
-
-        // Atomically write transactions + hashes (and do header formatting) in one batchUpdate.
-        // This prevents the "data appended but hashes missing" partial-success state.
-        const hashesSheetId = pickUnusedSheetId(new Set([transactionsSheetId]));
-        const batchRequests: any[] = [
-          {
-            addSheet: {
-              properties: {
-                sheetId: hashesSheetId,
-                title: SHEETS_HASHES_SHEET_TITLE,
-                hidden: true,
-              },
-            },
-          },
-          {
-            updateCells: {
-              start: { sheetId: transactionsSheetId, rowIndex: 0, columnIndex: 0 },
-              rows: [asRowData(headers), ...txRows.map(asRowData)],
-              fields: "userEnteredValue",
-            },
-          },
-          {
-            updateCells: {
-              start: { sheetId: hashesSheetId, rowIndex: 0, columnIndex: 0 },
-              rows: [asRowData(["hash"]), ...txHashes.map((h) => asRowData([h]))],
-              fields: "userEnteredValue",
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId: transactionsSheetId, startRowIndex: 0, endRowIndex: 1 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
-                  textFormat: {
-                    foregroundColor: { red: 1.0, green: 1.0, blue: 1.0 },
-                    bold: true,
-                  },
-                },
-              },
-              fields: "userEnteredFormat(backgroundColor,textFormat)",
-            },
-          },
-          {
-            autoResizeDimensions: {
-              dimensions: {
-                sheetId: transactionsSheetId,
-                dimension: "COLUMNS",
-                startIndex: 0,
-                endIndex: headers.length,
-              },
-            },
-          },
-        ];
-
-        await fetchJsonWithAuth(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
-          session.accessToken,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ requests: batchRequests }),
-          }
-        );
-      } else {
-        spreadsheetId = providedSpreadsheetId;
+        // Get the spreadsheet metadata to find the Transactions and Hashes sheets
         const spreadsheet = await fetchJsonWithAuth(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=spreadsheetUrl,sheets.properties`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
           session.accessToken,
           { method: "GET" }
         );
 
-        sheetUrl =
-          spreadsheet?.spreadsheetUrl ||
-          `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+        sheetUrl = spreadsheet.spreadsheetUrl;
 
-        const sheets: Array<{ properties: { sheetId: number; title: string } }> =
-          spreadsheet?.sheets ?? [];
-        const usedSheetIds = new Set<number>(sheets.map((s) => s.properties.sheetId));
-
-        let transactionsSheet = sheets.find(
-          (s) => s.properties.title === SHEETS_TRANSACTIONS_SHEET_TITLE
+        let transactionsSheet = spreadsheet.sheets.find(
+          (s: any) => s.properties.title === finalSheetTabName
         );
-        let hashesSheet = sheets.find((s) => s.properties.title === SHEETS_HASHES_SHEET_TITLE);
+        let hashesSheet = spreadsheet.sheets.find(
+          (s: any) => s.properties.title === SHEETS_HASHES_SHEET_TITLE
+        );
 
-        const preRequests: any[] = [];
+        const usedSheetIds = new Set<number>(
+          spreadsheet.sheets.map((s: any) => s.properties.sheetId)
+        );
+
+        const setupRequests: any[] = [];
+
         if (!transactionsSheet) {
-          const newId = pickUnusedSheetId(usedSheetIds);
-          usedSheetIds.add(newId);
-          preRequests.push({
-            addSheet: { properties: { sheetId: newId, title: SHEETS_TRANSACTIONS_SHEET_TITLE } },
+          const sheetId = pickUnusedSheetId(usedSheetIds);
+          usedSheetIds.add(sheetId);
+          setupRequests.push({
+            addSheet: {
+              properties: {
+                title: finalSheetTabName,
+                sheetId,
+                gridProperties: { frozenRowCount: 1 },
+              },
+            },
           });
-          preRequests.push({
+          setupRequests.push({
             updateCells: {
-              start: { sheetId: newId, rowIndex: 0, columnIndex: 0 },
-              rows: [asRowData(headers)],
+              range: {
+                sheetId,
+                startRowIndex: 0,
+                endRowIndex: 1,
+                startColumnIndex: 0,
+                endColumnIndex: 10,
+              },
+              rows: [
+                asRowData([
+                  "Date",
+                  "Description",
+                  "Payee",
+                  "Debit",
+                  "Credit",
+                  "Balance",
+                  "Account ID",
+                  "Source Bank",
+                  "Period Start",
+                  "Period End",
+                ]),
+              ],
               fields: "userEnteredValue",
             },
           });
-          preRequests.push({
+          setupRequests.push({
             repeatCell: {
-              range: { sheetId: newId, startRowIndex: 0, endRowIndex: 1 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
-                  textFormat: {
-                    foregroundColor: { red: 1.0, green: 1.0, blue: 1.0 },
-                    bold: true,
-                  },
-                },
-              },
-              fields: "userEnteredFormat(backgroundColor,textFormat)",
+              range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+              cell: { userEnteredFormat: { textFormat: { bold: true } } },
+              fields: "userEnteredFormat.textFormat.bold",
             },
           });
-          transactionsSheet = { properties: { sheetId: newId, title: SHEETS_TRANSACTIONS_SHEET_TITLE } };
+          setupRequests.push({
+            autoResizeDimensions: {
+              dimensions: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 10 },
+            },
+          });
         }
 
         if (!hashesSheet) {
-          const newId = pickUnusedSheetId(usedSheetIds);
-          usedSheetIds.add(newId);
-          preRequests.push({
+          const sheetId = pickUnusedSheetId(usedSheetIds);
+          usedSheetIds.add(sheetId);
+          setupRequests.push({
             addSheet: {
-              properties: { sheetId: newId, title: SHEETS_HASHES_SHEET_TITLE, hidden: true },
+              properties: {
+                title: SHEETS_HASHES_SHEET_TITLE,
+                sheetId,
+                hidden: true,
+              },
             },
           });
-          preRequests.push({
-            updateCells: {
-              start: { sheetId: newId, rowIndex: 0, columnIndex: 0 },
-              rows: [asRowData(["hash"])],
-              fields: "userEnteredValue",
-            },
-          });
-          hashesSheet = { properties: { sheetId: newId, title: SHEETS_HASHES_SHEET_TITLE } };
         }
 
-        if (preRequests.length > 0) {
-          await fetchJsonWithAuth(
+        if (setupRequests.length > 0) {
+          const setupResult = await fetchJsonWithAuth(
             `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
             session.accessToken,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ requests: preRequests }),
+              body: JSON.stringify({ requests: setupRequests }),
             }
           );
-        }
 
-        // Load existing hashes to prevent duplicates.
-        // Note: we keep this simple; if this grows huge, we should paginate via the Sheets API / a DB.
-        let existingHashes = new Set<string>();
-        try {
-          const hashesValues = await fetchJsonWithAuth(
-            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
-              `${SHEETS_HASHES_SHEET_TITLE}!A:A`
-            )}`,
-            session.accessToken,
-            { method: "GET" }
-          );
-          const values: string[][] = hashesValues?.values ?? [];
-          for (const [v] of values) {
-            if (!v) continue;
-            if (v === "hash") continue;
-            existingHashes.add(v);
+          // Refresh metadata to get the new sheet objects
+          if (!transactionsSheet || !hashesSheet) {
+            const updatedSpreadsheet = await fetchJsonWithAuth(
+              `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
+              session.accessToken,
+              { method: "GET" }
+            );
+            transactionsSheet = updatedSpreadsheet.sheets.find(
+              (s: any) => s.properties.title === finalSheetTabName
+            );
+            hashesSheet = updatedSpreadsheet.sheets.find(
+              (s: any) => s.properties.title === SHEETS_HASHES_SHEET_TITLE
+            );
           }
-        } catch {
-          // If we can't read hashes (permissions / transient), fail closed to avoid duplicating rows.
-          return res.status(503).json({
-            error: "Failed to read existing hashes",
-            message:
-              "Unable to read the Transaction Hashes sheet to safely dedupe. Please retry.",
-          });
         }
 
-        const rowsToAppend: string[][] = [];
+        // Fetch existing hashes for deduplication
+        const hashesResponse = await fetchJsonWithAuth(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${escapeSheetTabNameForA1(
+            SHEETS_HASHES_SHEET_TITLE
+          )}'!A:A`,
+          session.accessToken,
+          { method: "GET" }
+        );
+
+        const existingHashes = new Set<string>(
+          (hashesResponse.values || []).map((row: string[]) => row[0])
+        );
+
+        const transactionsToAppend: CanonicalTransaction[] = [];
         const hashesToAppend: string[] = [];
-        for (let i = 0; i < transactions.length; i++) {
-          const hash = txHashes[i]!;
-          if (existingHashes.has(hash)) {
+
+        for (const tx of transactions) {
+          const hash = computeTransactionHash(tx);
+          if (!existingHashes.has(hash)) {
+            transactionsToAppend.push(tx);
+            hashesToAppend.push(hash);
+          } else {
             skippedDuplicateCount++;
-            continue;
           }
-          existingHashes.add(hash);
-          rowsToAppend.push(txRows[i]!);
-          hashesToAppend.push(hash);
         }
 
-        appendedCount = rowsToAppend.length;
+        appendedCount = transactionsToAppend.length;
 
-        if (rowsToAppend.length > 0) {
-          const appendRequests: any[] = [
+        if (appendedCount > 0) {
+          const appendRequests = [
             {
               appendCells: {
                 sheetId: transactionsSheet!.properties.sheetId,
-                rows: rowsToAppend.map(asRowData),
+                rows: transactionsToAppend.map((tx) => asRowData(toSheetsRow(tx))),
                 fields: "userEnteredValue",
               },
             },
@@ -1166,32 +724,126 @@ export function registerExportRoutes(app: Express): void {
             }
           );
         }
+      } else {
+        // CREATE MODE: Create new spreadsheet
+        const createResponse = await fetchJsonWithAuth(
+          "https://sheets.googleapis.com/v4/spreadsheets",
+          session.accessToken,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              properties: { title: sheetName },
+              sheets: [
+                {
+                  properties: {
+                    title: finalSheetTabName,
+                    sheetId: 0,
+                    gridProperties: { frozenRowCount: 1 },
+                  },
+                },
+                {
+                  properties: {
+                    title: SHEETS_HASHES_SHEET_TITLE,
+                    sheetId: 1,
+                    hidden: true,
+                  },
+                },
+              ],
+            }),
+          }
+        );
+
+        spreadsheetId = createResponse.spreadsheetId;
+        sheetUrl = createResponse.spreadsheetUrl;
+
+        // Move to folder if specified
+        if (folderId) {
+          await fetchJsonWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${folderId}`,
+            session.accessToken,
+            { method: "PATCH" }
+          );
+        }
+
+        const hashesToAppend = transactions.map(computeTransactionHash);
+        appendedCount = transactions.length;
+
+        const initialRequests = [
+          {
+            updateCells: {
+              range: {
+                sheetId: 0,
+                startRowIndex: 0,
+                endRowIndex: 1,
+                startColumnIndex: 0,
+                endColumnIndex: 10,
+              },
+              rows: [
+                asRowData([
+                  "Date",
+                  "Description",
+                  "Payee",
+                  "Debit",
+                  "Credit",
+                  "Balance",
+                  "Account ID",
+                  "Source Bank",
+                  "Period Start",
+                  "Period End",
+                ]),
+              ],
+              fields: "userEnteredValue",
+            },
+          },
+          {
+            repeatCell: {
+              range: { sheetId: 0, startRowIndex: 0, endRowIndex: 1 },
+              cell: { userEnteredFormat: { textFormat: { bold: true } } },
+              fields: "userEnteredFormat.textFormat.bold",
+            },
+          },
+          {
+            appendCells: {
+              sheetId: 0,
+              rows: transactions.map((tx) => asRowData(toSheetsRow(tx))),
+              fields: "userEnteredValue",
+            },
+          },
+          {
+            appendCells: {
+              sheetId: 1,
+              rows: hashesToAppend.map((h) => asRowData([h])),
+              fields: "userEnteredValue",
+            },
+          },
+          {
+            autoResizeDimensions: {
+              dimensions: { sheetId: 0, dimension: "COLUMNS", startIndex: 0, endIndex: 10 },
+            },
+          },
+        ];
+
+        await fetchJsonWithAuth(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+          session.accessToken,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ requests: initialRequests }),
+          }
+        );
       }
-
-      // Create Hashes sheet and store initial hashes for duplicate detection
-      await ensureHashesSheet(spreadsheetId, session.accessToken);
-      const initialHashes = transactions.map(tx => hashTransaction(tx));
-      await appendHashes(spreadsheetId, session.accessToken, initialHashes);
-
-      rowsAdded = transactions.length;
 
       logEvent("export_sheets", {
         exportId: spreadsheetId,
         success: true,
         status: 200,
-<<<<<<< cursor/transaction-append-duplication-fix-822f
         transactionCount: appendedCount,
         skippedDuplicateCount,
         sheetName: isAppendMode ? undefined : sheetName,
         folderId: isAppendMode ? undefined : folderId,
-=======
-        mode: 'create',
->>>>>>> main
-        transactionCount: transactions.length,
-        rowsAdded,
-        sheetName,
         sheetTabName: finalSheetTabName,
-        folderId,
       });
 
       recordExportEvent({
@@ -1206,15 +858,8 @@ export function registerExportRoutes(app: Express): void {
         success: true,
         spreadsheetId,
         sheetUrl,
-<<<<<<< cursor/transaction-append-duplication-fix-822f
         appendedCount,
         skippedDuplicateCount,
-=======
-        mode: 'create',
-        rowsAdded,
-        rowsSkipped: 0,
-        transactionCount: transactions.length,
->>>>>>> main
       });
     } catch (error) {
       logEvent(
@@ -1243,4 +888,3 @@ export function registerExportRoutes(app: Express): void {
     }
   });
 }
-
