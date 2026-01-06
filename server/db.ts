@@ -1,6 +1,12 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, quickbooksHistory, InsertQuickbooksHistory } from "../drizzle/schema";
+import { 
+  InsertUser, users, 
+  quickbooksHistory, InsertQuickbooksHistory,
+  accountRegistry, Account, InsertAccount,
+  importLog, ImportLog, InsertImportLog
+} from "../drizzle/schema";
+import { and } from "drizzle-orm";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -122,4 +128,43 @@ export async function getQuickbooksHistory(userId: number): Promise<InsertQuickb
     console.error("[Database] Failed to get QuickBooks history:", error);
     return [];
   }
+}
+
+// Account Registry Functions
+export async function getAccounts(userId: number): Promise<Account[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(accountRegistry).where(and(eq(accountRegistry.userId, userId), eq(accountRegistry.isActive, 1)));
+}
+
+export async function createAccount(account: InsertAccount): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(accountRegistry).values(account);
+}
+
+export async function updateAccount(id: number, userId: number, account: Partial<InsertAccount>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(accountRegistry).set(account).where(and(eq(accountRegistry.id, id), eq(accountRegistry.userId, userId)));
+}
+
+// Import Log Functions
+export async function getImportLogs(userId: number): Promise<ImportLog[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(importLog).where(eq(importLog.userId, userId));
+}
+
+export async function checkImportExists(accountId: number, period: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const result = await db.select().from(importLog).where(and(eq(importLog.accountId, accountId), eq(importLog.statementPeriod, period))).limit(1);
+  return result.length > 0;
+}
+
+export async function storeImportLog(log: InsertImportLog): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(importLog).values(log);
 }

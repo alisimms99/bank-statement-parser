@@ -38,3 +38,34 @@ export const quickbooksHistory = mysqlTable("quickbooks_history", {
 
 export type QuickbooksHistory = typeof quickbooksHistory.$inferSelect;
 export type InsertQuickbooksHistory = typeof quickbooksHistory.$inferInsert;
+
+export const accountRegistry = mysqlTable("account_registry", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").references(() => users.id),
+  accountName: varchar("accountName", { length: 100 }).notNull(),
+  accountLast4: varchar("accountLast4", { length: 4 }),
+  accountType: varchar("accountType", { length: 20 }).notNull(), // "bank" | "credit_card"
+  issuer: varchar("issuer", { length: 50 }),
+  isActive: int("isActive").default(1).notNull(), // 1 for true, 0 for false
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Account = typeof accountRegistry.$inferSelect;
+export type InsertAccount = typeof accountRegistry.$inferInsert;
+
+export const importLog = mysqlTable("import_log", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").references(() => users.id),
+  accountId: int("accountId").references(() => accountRegistry.id),
+  statementPeriod: varchar("statementPeriod", { length: 7 }).notNull(), // "2024-12"
+  statementYear: int("statementYear").notNull(),
+  fileHash: varchar("fileHash", { length: 64 }),
+  fileName: varchar("fileName", { length: 255 }),
+  transactionCount: int("transactionCount"),
+  sheetTabName: varchar("sheetTabName", { length: 100 }),
+  importedAt: timestamp("importedAt").defaultNow().notNull(),
+});
+
+export type ImportLog = typeof importLog.$inferSelect;
+export type InsertImportLog = typeof importLog.$inferInsert;
