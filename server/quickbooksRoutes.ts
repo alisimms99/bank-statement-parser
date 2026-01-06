@@ -2,7 +2,7 @@ import { Express } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { requireAuth } from "./middleware/auth";
-import { storeQuickbooksHistory } from "./db";
+import { storeQuickbooksHistory, getUserByOpenId } from "./db";
 import { logEvent } from "./_core/log";
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -27,6 +27,21 @@ export function registerQuickbooksRoutes(app: Express) {
         return res.status(503).json({ 
           error: "Database required for QuickBooks upload. Please try again later." 
         });
+      const user = (req as any).user as { id?: number; openId?: string } | undefined;
+      if (!user) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      // Ensure we have a numeric userId to maintain data integrity
+      let userId: number | undefined = typeof user.id === "number" ? user.id : undefined;
+      if (!userId && user.openId) {
+        // Try to resolve from DB using openId (if DB is available)
+        const dbUser = await getUserByOpenId(user.openId);
+        userId = dbUser?.id;
+      }
+      if (!userId) {
+        return res
+          .status(400)
+          .json({ error: "Authenticated user is not provisioned in database (missing user id)" });
       }
 
       const parsed = quickbooksUploadSchema.safeParse(req.body);
@@ -36,13 +51,13 @@ export function registerQuickbooksRoutes(app: Express) {
 
       const entries = parsed.data.map(entry => ({
         ...entry,
-        userId: user.id,
+        userId,
       }));
 
       await storeQuickbooksHistory(entries);
 
       logEvent("quickbooks_upload_success", {
-        userId: user.id,
+        userId,
         entryCount: entries.length,
       });
 
