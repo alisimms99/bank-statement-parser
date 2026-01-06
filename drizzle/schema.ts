@@ -25,4 +25,16 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here
+export const quickbooksHistory = mysqlTable("quickbooks_history", {
+  id: int("id").autoincrement().primaryKey(),
+  date: varchar("date", { length: 255 }).notNull(),
+  description: text("description").notNull(),
+  payee: varchar("payee", { length: 255 }),
+  category: varchar("category", { length: 255 }).notNull(),
+  amount: varchar("amount", { length: 255 }).notNull(), // Store as string to handle different formats
+  userId: int("userId").references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type QuickbooksHistory = typeof quickbooksHistory.$inferSelect;
+export type InsertQuickbooksHistory = typeof quickbooksHistory.$inferInsert;

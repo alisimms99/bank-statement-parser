@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { InsertUser, users, quickbooksHistory, InsertQuickbooksHistory } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +89,37 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function storeQuickbooksHistory(entries: InsertQuickbooksHistory[]): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot store QuickBooks history: database not available");
+    return;
+  }
+
+  try {
+    // Process in batches of 100 to avoid large payload issues
+    const batchSize = 100;
+    for (let i = 0; i < entries.length; i += batchSize) {
+      const batch = entries.slice(i, i + batchSize);
+      await db.insert(quickbooksHistory).values(batch);
+    }
+  } catch (error) {
+    console.error("[Database] Failed to store QuickBooks history:", error);
+    throw error;
+  }
+}
+
+export async function getQuickbooksHistory(userId: number): Promise<InsertQuickbooksHistory[]> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get QuickBooks history: database not available");
+    return [];
+  }
+
+  try {
+    return await db.select().from(quickbooksHistory).where(eq(quickbooksHistory.userId, userId));
+  } catch (error) {
+    console.error("[Database] Failed to get QuickBooks history:", error);
+    return [];
+  }
+}
