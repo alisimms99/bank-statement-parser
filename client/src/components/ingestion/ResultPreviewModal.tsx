@@ -26,7 +26,7 @@ import { downloadCSV } from "@/lib/pdfParser";
 import { toCSV } from "@shared/export/csv";
 import type { CanonicalTransaction } from "@shared/transactions";
 import { Download, FileText, Info, Sparkles, Loader2, AlertCircle, Trash2 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 export interface ResultPreviewModalProps {
@@ -75,11 +75,26 @@ export default function ResultPreviewModal({
     flagged: number;
   } | null>(null);
 
-  // Reset state when modal opens with new transactions
+  // Tracks the currently "valid" cleanup request/generation.
+  // Incrementing this invalidates any in-flight request's ability to mutate state.
+  const cleanupGenerationRef = useRef(0);
+  const cleanupAbortRef = useRef<AbortController | null>(null);
+
+  const cancelInFlightCleanup = () => {
+    cleanupGenerationRef.current += 1;
+    cleanupAbortRef.current?.abort();
+    cleanupAbortRef.current = null;
+    setIsCleaning(false);
+  };
+
+  // Reset state when modal opens with new transactions (and cancel any in-flight cleanup)
   useEffect(() => {
     if (open) {
+      cancelInFlightCleanup();
       setTransactions(initialTransactions);
       setCleanupStats(null);
+    } else {
+      cancelInFlightCleanup();
     }
   }, [open, initialTransactions]);
 
@@ -114,6 +129,14 @@ export default function ResultPreviewModal({
   };
 
   const handleAICleanup = async () => {
+    // Cancel any previous cleanup request (without resetting transactions/stats)
+    cleanupGenerationRef.current += 1;
+    cleanupAbortRef.current?.abort();
+    const generation = cleanupGenerationRef.current;
+
+    const controller = new AbortController();
+    cleanupAbortRef.current = controller;
+
     setIsCleaning(true);
     try {
       const response = await fetch("/api/cleanup", {
@@ -122,6 +145,7 @@ export default function ResultPreviewModal({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ transactions }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -129,6 +153,9 @@ export default function ResultPreviewModal({
       }
 
       const result: CleanupResult = await response.json();
+
+      // If the modal was reset/reopened (or another cleanup started), ignore stale results.
+      if (cleanupGenerationRef.current !== generation) return;
       
       // Update transactions with cleaned ones
       // We merge cleaned and flagged, as flagged are kept but need review
@@ -149,10 +176,17 @@ export default function ResultPreviewModal({
 
       toast.success(`AI Cleanup complete: ${result.removed.length} rows removed, ${result.flagged.length} flagged.`);
     } catch (error) {
+      if (controller.signal.aborted) return;
+      if (cleanupGenerationRef.current !== generation) return;
       console.error("AI Cleanup failed", error);
       toast.error("AI Cleanup failed. Please try again.");
     } finally {
-      setIsCleaning(false);
+      if (cleanupGenerationRef.current === generation) {
+        setIsCleaning(false);
+        if (cleanupAbortRef.current === controller) {
+          cleanupAbortRef.current = null;
+        }
+      }
     }
   };
 
