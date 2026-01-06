@@ -13,6 +13,8 @@ import { serveStatic } from "./serveStatic";
 import { registerIngestionRoutes } from "../ingestRoutes";
 import { registerExportRoutes } from "../exportRoutes";
 import { registerCleanupRoutes } from "../cleanupRoutes";
+import { registerQuickbooksRoutes } from "../quickbooksRoutes";
+import { registerAccountRoutes } from "../accountRoutes";
 import { applySecurityHeaders, uploadValidationMiddleware } from "../middleware/security";
 import { assertEnvOnStartup, getServerEnv } from "./env";
 import { logEvent } from "./log";
@@ -106,6 +108,8 @@ async function startServer() {
   registerIngestionRoutes(app);
   registerExportRoutes(app);
   registerCleanupRoutes(app);
+  registerQuickbooksRoutes(app);
+  registerAccountRoutes(app);
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   // tRPC API

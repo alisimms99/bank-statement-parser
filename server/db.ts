@@ -1,6 +1,12 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { 
+  InsertUser, users, 
+  quickbooksHistory, InsertQuickbooksHistory,
+  accountRegistry, Account, InsertAccount,
+  importLog, ImportLog, InsertImportLog
+} from "../drizzle/schema";
+import { and } from "drizzle-orm";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +95,76 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function storeQuickbooksHistory(entries: InsertQuickbooksHistory[]): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot store QuickBooks history: database not available");
+    return;
+  }
+
+  try {
+    // Process in batches of 100 to avoid large payload issues
+    const batchSize = 100;
+    for (let i = 0; i < entries.length; i += batchSize) {
+      const batch = entries.slice(i, i + batchSize);
+      await db.insert(quickbooksHistory).values(batch);
+    }
+  } catch (error) {
+    console.error("[Database] Failed to store QuickBooks history:", error);
+    throw error;
+  }
+}
+
+export async function getQuickbooksHistory(userId: number): Promise<InsertQuickbooksHistory[]> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get QuickBooks history: database not available");
+    return [];
+  }
+
+  try {
+    return await db.select().from(quickbooksHistory).where(eq(quickbooksHistory.userId, userId));
+  } catch (error) {
+    console.error("[Database] Failed to get QuickBooks history:", error);
+    return [];
+  }
+}
+
+// Account Registry Functions
+export async function getAccounts(userId: number): Promise<Account[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(accountRegistry).where(and(eq(accountRegistry.userId, userId), eq(accountRegistry.isActive, 1)));
+}
+
+export async function createAccount(account: InsertAccount): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(accountRegistry).values(account);
+}
+
+export async function updateAccount(id: number, userId: number, account: Partial<InsertAccount>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(accountRegistry).set(account).where(and(eq(accountRegistry.id, id), eq(accountRegistry.userId, userId)));
+}
+
+// Import Log Functions
+export async function getImportLogs(userId: number): Promise<ImportLog[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(importLog).where(eq(importLog.userId, userId));
+}
+
+export async function checkImportExists(accountId: number, period: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const result = await db.select().from(importLog).where(and(eq(importLog.accountId, accountId), eq(importLog.statementPeriod, period))).limit(1);
+  return result.length > 0;
+}
+
+export async function storeImportLog(log: InsertImportLog): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(importLog).values(log);
+}

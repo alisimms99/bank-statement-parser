@@ -8,6 +8,7 @@ import { logEvent, serializeError } from "./_core/log";
 import { requireAuth } from "./middleware/auth";
 import { OAuth2Client } from "google-auth-library";
 import { ENV } from "./_core/env";
+import { getAccounts, checkImportExists, storeImportLog, getImportLogs } from "./db";
 import { verifySessionToken } from "./middleware/auth";
 import { parse as parseCookie } from "cookie";
 import { COOKIE_NAME } from "@shared/const";
@@ -31,23 +32,39 @@ const SHEETS_TRANSACTIONS_SHEET_TITLE = "Transactions";
 const SHEETS_HASHES_SHEET_TITLE = "Transaction Hashes";
 
 function toSheetsRow(tx: CanonicalTransaction): string[] {
+  // Spec #129 Columns:
+  // A: Date
+  // B: Description (normalized)
+  // C: Original Description (raw from statement)
+  // D: Amount
+  // E: Balance (if available, nullable for CCs)
+  // F: Category (from QuickBooks history match)
+  // G: Source File
+  // H: Import Date
+  
+  const amount = tx.credit !== undefined && tx.credit !== null && tx.credit !== 0 
+    ? tx.credit 
+    : (tx.debit !== undefined && tx.debit !== null ? -tx.debit : 0);
+
   return [
     tx.date || "",
-    tx.description || "",
-    tx.payee || "",
-    tx.debit?.toString() || "",
-    tx.credit?.toString() || "",
+    tx.payee || tx.description || "", // Normalized description
+    tx.description || "", // Original description
+    amount.toString(),
     tx.balance?.toString() || "",
-    tx.account_id || "",
-    tx.source_bank || "",
-    tx.statement_period?.start || "",
-    tx.statement_period?.end || "",
+    (tx as any).category || "", // Category from AI/QuickBooks
+    (tx as any).sourceFile || "",
+    new Date().toISOString().split('T')[0], // Import Date
   ];
 }
 
 function computeTransactionHash(tx: CanonicalTransaction): string {
-  // Hash exactly what we write to Sheets, so the dedupe key matches the sheet rows.
-  const stable = toSheetsRow(tx).join("\u001f");
+  // Hash a stable projection that ignores volatile fields (source file, import date)
+  const row = toSheetsRow(tx);
+  // Indices: 0 Date, 1 Normalized Desc, 2 Original Desc, 3 Amount, 4 Balance, 5 Category, 6 Source File, 7 Import Date
+  row[6] = ""; // ignore source file
+  row[7] = ""; // ignore import date
+  const stable = row.join("\u001f");
   return createHash("sha256").update(stable, "utf8").digest("hex");
 }
 
@@ -57,6 +74,11 @@ function asSheetCellString(value: string) {
 
 function asRowData(values: string[]) {
   return { values: values.map(asSheetCellString) };
+}
+
+function escapeSheetTabNameForA1(name: string): string {
+  if (/^[a-zA-Z0-9_]+$/.test(name)) return name;
+  return `'${name.replace(/'/g, "''")}'`;
 }
 
 async function fetchJsonWithAuth(
@@ -270,6 +292,369 @@ ${startXref}
 }
 
 export function registerExportRoutes(app: Express): void {
+  /**
+   * POST /api/sheets/validate
+   * Pre-upload validation for Google Sheets sync
+   */
+  app.post("/api/sheets/validate", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { account_id, statement_periods } = req.body;
+      const accountIdNum: number =
+        typeof account_id === "string" ? Number.parseInt(account_id, 10) : account_id;
+      if (Number.isNaN(accountIdNum) || !statement_periods || !Array.isArray(statement_periods)) {
+        return res.status(400).json({ error: "Missing account_id or statement_periods" });
+      }
+
+      // Ensure the account belongs to the requester
+      const accounts = await getAccounts(user.id);
+      const account = accounts.find((a) => a.id === accountIdNum);
+      if (!account) {
+        return res.status(404).json({ error: "Account not found or access denied" });
+      }
+
+      const warnings = [];
+      const new_periods = [];
+
+      for (const period of statement_periods) {
+        const exists = await checkImportExists(accountIdNum, period);
+        if (exists) {
+          warnings.push({ period, status: "already_imported" });
+        } else {
+          new_periods.push(period);
+        }
+      }
+
+      res.json({
+        valid: true,
+        warnings,
+        new_periods,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Validation failed" });
+    }
+  });
+
+  /**
+   * POST /api/sheets/sync
+   * Robust Google Sheets synchronization
+   */
+  app.post("/api/sheets/sync", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { account_id, year, transactions, statement_periods, file_hashes } = req.body;
+
+      if (!account_id || !year || !transactions || !statement_periods) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      // 1. Validate account
+      const accounts = await getAccounts(user.id);
+      const accountIdNum: number =
+        typeof account_id === "string" ? Number.parseInt(account_id, 10) : account_id;
+      const account = accounts.find(a => a.id === accountIdNum);
+      if (!account) {
+        return res.status(404).json({ error: "Account not found or access denied" });
+      }
+
+      // 2. Check for duplicate periods
+      const newPeriods = [];
+      for (const period of statement_periods) {
+        const exists = await checkImportExists(accountIdNum, period);
+        if (!exists) {
+          newPeriods.push(period);
+        }
+      }
+
+      if (newPeriods.length === 0) {
+        return res.json({
+          success: true,
+          message: "All periods already imported",
+          transactions_added: 0,
+          duplicates_skipped: transactions.length,
+        });
+      }
+
+      // 3. Resolve target Sheet + Tab
+      const masterSheetId = ENV.googleSheetsMasterId; // From env as per spec
+      if (!masterSheetId) {
+        return res.status(500).json({ error: "Master Sheet ID not configured" });
+      }
+
+      const tabName = `${account.accountName}-${account.accountLast4 || "XXXX"}-${year}`;
+      
+      // Get access token
+      const cookieHeader = req.headers.cookie;
+      const cookies = parseCookie(cookieHeader || "");
+      const sessionToken = cookies[COOKIE_NAME];
+      const session = await verifySessionToken(sessionToken || "");
+      
+      if (!session || !session.accessToken) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      // 4. Append transactions
+      const spreadsheetId = masterSheetId;
+      const finalSheetTabName = tabName;
+
+      // Get the spreadsheet metadata to find the Transactions and Hashes sheets
+      const spreadsheet = await fetchJsonWithAuth(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
+        session.accessToken,
+        { method: "GET" }
+      );
+
+      let transactionsSheet = spreadsheet.sheets.find(
+        (s: any) => s.properties.title === finalSheetTabName
+      );
+      let hashesSheet = spreadsheet.sheets.find(
+        (s: any) => s.properties.title === SHEETS_HASHES_SHEET_TITLE
+      );
+
+      const usedSheetIds = new Set<number>(
+        spreadsheet.sheets.map((s: any) => s.properties.sheetId)
+      );
+
+      const setupRequests: any[] = [];
+
+      if (!transactionsSheet) {
+        const sheetId = pickUnusedSheetId(usedSheetIds);
+        usedSheetIds.add(sheetId);
+        setupRequests.push({
+          addSheet: {
+            properties: {
+              title: finalSheetTabName,
+              sheetId,
+              gridProperties: { frozenRowCount: 1 },
+              tabColor: account.accountType === "bank" ? { blue: 1.0 } : { green: 1.0 },
+            },
+          },
+        });
+        setupRequests.push({
+          updateCells: {
+            range: {
+              sheetId,
+              startRowIndex: 0,
+              endRowIndex: 1,
+              startColumnIndex: 0,
+              endColumnIndex: 8,
+            },
+            rows: [
+              asRowData([
+                "Date",
+                "Description (normalized)",
+                "Original Description",
+                "Amount",
+                "Balance",
+                "Category",
+                "Source File",
+                "Import Date",
+              ]),
+            ],
+            fields: "userEnteredValue",
+          },
+        });
+        setupRequests.push({
+          repeatCell: {
+            range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+            cell: { userEnteredFormat: { textFormat: { bold: true } } },
+            fields: "userEnteredFormat.textFormat.bold",
+          },
+        });
+        setupRequests.push({
+          autoResizeDimensions: {
+            dimensions: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 8 },
+          },
+        });
+      }
+
+      if (!hashesSheet) {
+        const sheetId = pickUnusedSheetId(usedSheetIds);
+        usedSheetIds.add(sheetId);
+        setupRequests.push({
+          addSheet: {
+            properties: {
+              title: SHEETS_HASHES_SHEET_TITLE,
+              sheetId,
+              hidden: true,
+            },
+          },
+        });
+      }
+
+      if (setupRequests.length > 0) {
+        await fetchJsonWithAuth(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+          session.accessToken,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ requests: setupRequests }),
+          }
+        );
+
+        // Refresh metadata
+        const updatedSpreadsheet = await fetchJsonWithAuth(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
+          session.accessToken,
+          { method: "GET" }
+        );
+        transactionsSheet = updatedSpreadsheet.sheets.find(
+          (s: any) => s.properties.title === finalSheetTabName
+        );
+        hashesSheet = updatedSpreadsheet.sheets.find(
+          (s: any) => s.properties.title === SHEETS_HASHES_SHEET_TITLE
+        );
+      }
+
+      // Fetch existing hashes for deduplication
+      const hashesResponse = await fetchJsonWithAuth(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+          `${escapeSheetTabNameForA1(SHEETS_HASHES_SHEET_TITLE)}!A:A`
+        )}`,
+        session.accessToken,
+        { method: "GET" }
+      );
+
+      const existingHashes = new Set<string>(
+        (hashesResponse.values || []).map((row: string[]) => row[0])
+      );
+
+      const transactionsToAppend: CanonicalTransaction[] = [];
+      const hashesToAppend: string[] = [];
+
+      for (const tx of transactions) {
+        const hash = computeTransactionHash(tx);
+        if (!existingHashes.has(hash)) {
+          transactionsToAppend.push(tx);
+          hashesToAppend.push(hash);
+        }
+      }
+
+      if (transactionsToAppend.length > 0) {
+        const appendRequests = [
+          {
+            appendCells: {
+              sheetId: transactionsSheet!.properties.sheetId,
+              rows: transactionsToAppend.map((tx) => asRowData(toSheetsRow(tx))),
+              fields: "userEnteredValue",
+            },
+          },
+          {
+            appendCells: {
+              sheetId: hashesSheet!.properties.sheetId,
+              rows: hashesToAppend.map((h) => asRowData([h])),
+              fields: "userEnteredValue",
+            },
+          },
+        ];
+
+        await fetchJsonWithAuth(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+          session.accessToken,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ requests: appendRequests }),
+          }
+        );
+      }
+
+      // 5. Update Import Log
+      for (let i = 0; i < statement_periods.length; i++) {
+        const period = statement_periods[i];
+        if (newPeriods.includes(period)) {
+          await storeImportLog({
+            userId: user.id,
+            accountId: account.id,
+            statementPeriod: period,
+            statementYear: year,
+            fileHash: file_hashes?.[i] || null,
+            transactionCount: transactions.length,
+            sheetTabName: tabName,
+          });
+        }
+      }
+
+      // 6. Sync CONFIG tabs (Audit Trail)
+      let registrySheet = spreadsheet.sheets.find((s: any) => s.properties.title === "_Account Registry");
+      let importLogSheet = spreadsheet.sheets.find((s: any) => s.properties.title === "_Import Log");
+      
+      const auditRequests: any[] = [];
+      if (!registrySheet) {
+        auditRequests.push({ addSheet: { properties: { title: "_Account Registry", index: spreadsheet.sheets.length } } });
+      }
+      if (!importLogSheet) {
+        auditRequests.push({ addSheet: { properties: { title: "_Import Log", index: spreadsheet.sheets.length + 1 } } });
+      }
+
+      if (auditRequests.length > 0) {
+        await fetchJsonWithAuth(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+          session.accessToken,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requests: auditRequests }) }
+        );
+        // Refresh metadata to capture newly-created sheet IDs
+        const refreshed = await fetchJsonWithAuth(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
+          session.accessToken,
+          { method: "GET" }
+        );
+        registrySheet = refreshed.sheets.find((s: any) => s.properties.title === "_Account Registry");
+        importLogSheet = refreshed.sheets.find((s: any) => s.properties.title === "_Import Log");
+      }
+
+      // Update Audit Trail Content
+      const allAccounts = await getAccounts(user.id);
+      const allImports = await getImportLogs(user.id);
+
+      if (!registrySheet || !importLogSheet) {
+        throw new Error("Failed to locate audit sheets after creation");
+      }
+
+      const updateAuditRequests = [
+        {
+          updateCells: {
+            range: { sheetId: registrySheet.properties.sheetId, startRowIndex: 0, startColumnIndex: 0 },
+            rows: [
+              asRowData(["ID", "Account Name", "Last 4", "Type", "Issuer", "Active"]),
+              ...allAccounts.map(a => asRowData([a.id.toString(), a.accountName, a.accountLast4 || "", a.accountType, a.issuer || "", a.isActive ? "Yes" : "No"]))
+            ],
+            fields: "userEnteredValue"
+          }
+        },
+        {
+          updateCells: {
+            range: { sheetId: importLogSheet.properties.sheetId, startRowIndex: 0, startColumnIndex: 0 },
+            rows: [
+              asRowData(["ID", "Account ID", "Period", "Year", "File Hash", "File Name", "Tx Count", "Tab Name", "Imported At"]),
+              ...allImports.map((l: any) => asRowData([l.id.toString(), l.accountId?.toString() || "", l.statementPeriod, l.statementYear.toString(), l.fileHash || "", l.fileName || "", l.transactionCount?.toString() || "", l.sheetTabName || "", l.importedAt.toISOString()]))
+            ],
+            fields: "userEnteredValue"
+          }
+        }
+      ];
+
+      await fetchJsonWithAuth(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+        session.accessToken,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requests: updateAuditRequests }) }
+      );
+
+      res.json({
+        success: true,
+        tab_name: tabName,
+        transactions_added: transactionsToAppend.length,
+        duplicates_skipped: transactions.length - transactionsToAppend.length,
+        sheet_url: `https://docs.google.com/spreadsheets/d/${masterSheetId}`,
+      });
+
+    } catch (error) {
+      console.error("Sync failed:", error);
+      res.status(500).json({ error: "Sync failed" });
+    }
+  });
+
   /**
    * GET /api/export/:id/csv
    * Export transactions as CSV
@@ -670,9 +1055,9 @@ export function registerExportRoutes(app: Express): void {
 
         // Fetch existing hashes for deduplication
         const hashesResponse = await fetchJsonWithAuth(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${escapeSheetTabNameForA1(
-            SHEETS_HASHES_SHEET_TITLE
-          )}'!A:A`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+            `${escapeSheetTabNameForA1(SHEETS_HASHES_SHEET_TITLE)}!A:A`
+          )}`,
           session.accessToken,
           { method: "GET" }
         );

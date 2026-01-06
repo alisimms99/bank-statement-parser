@@ -1,6 +1,7 @@
 import { invokeLLM, type InvokeResult } from "./_core/llm";
 import { logEvent } from "./_core/log";
 import type { CanonicalTransaction } from "@shared/transactions";
+import { getQuickbooksHistory } from "./db";
 
 export type CleanupResult = {
   cleaned: CanonicalTransaction[];
@@ -62,8 +63,19 @@ function isLikelyBalanceRow(tx: CanonicalTransaction): boolean {
 }
 
 export async function cleanTransactions(
-  transactions: CanonicalTransaction[]
+  transactions: CanonicalTransaction[],
+  userId?: number
 ): Promise<CleanupResult> {
+  // Fetch QuickBooks history if userId is provided
+  let qbHistory: any[] = [];
+  if (userId) {
+    qbHistory = await getQuickbooksHistory(userId);
+  }
+
+  // Prepare history context for the LLM
+  const historyContext = qbHistory.length > 0 
+    ? `\n\nUse the following QuickBooks historical categorization as reference (seed data):\n${JSON.stringify(qbHistory.slice(0, 50), null, 2)}`
+    : "";
   // Pre-pass: standardize merchants deterministically (helps reduce LLM work and ensures examples)
   const preprocessed = transactions.map(tx => ({
     ...tx,
@@ -97,6 +109,7 @@ export async function cleanTransactions(
     "4) KEEP all legitimate transactions unchanged.",
     "",
     "Return JSON object with fields: cleaned[], removed[], flagged[].",
+    historyContext,
     "",
     "Transactions:",
     JSON.stringify(preprocessed, null, 2),

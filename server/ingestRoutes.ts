@@ -8,6 +8,7 @@ import type { CanonicalDocument, CanonicalTransaction } from "@shared/transactio
 import type { DocumentAiTelemetry, IngestionFailure } from "@shared/types";
 import { legacyTransactionsToCanonical, parseStatementText } from "@shared/legacyStatementParser";
 import { storeTransactions } from "./exportRoutes";
+import { cleanTransactions } from "./aiCleanup";
 import { recordIngestFailure, recordIngestMetric } from "./_core/metrics";
 import { logEvent, serializeError, logIngestionError, logIngestionSuccess } from "./_core/log";
 import { extractTextFromPDFBuffer } from "./_core/pdfText";
@@ -187,23 +188,28 @@ export function registerIngestionRoutes(app: Express) {
         metadata: tx.metadata,
       }));
       
+      // Automate AI Cleanup (Normalization)
+      const user = (req as any).user;
+      const cleanupResult = await cleanTransactions(canonicalTransactions, user?.id);
+      const normalizedTransactions = [...cleanupResult.cleaned, ...cleanupResult.flagged];
+
       // Store transactions and get export ID
-      const exportId = storeTransactions(canonicalTransactions);
+      const exportId = storeTransactions(normalizedTransactions);
       
       logEvent("ingest_complete", {
         source: "custom",
         fileName,
-        transactionCount: canonicalTransactions.length,
+        transactionCount: normalizedTransactions.length,
         exportId,
       });
       
-      logIngestionSuccess(exportId, fileName, canonicalTransactions.length, "legacy", Date.now());
+      logIngestionSuccess(exportId, fileName, normalizedTransactions.length, "legacy", Date.now());
       
       res.json({
         source: "custom",
         document: {
           documentType: "bank_statement" as const,
-          transactions: canonicalTransactions,
+          transactions: normalizedTransactions,
           rawText: undefined,
         },
         exportId,
@@ -281,6 +287,7 @@ export function registerIngestionRoutes(app: Express) {
       // Get config first to check if Document AI is enabled
       const config = getDocumentAiConfig();
       const isDocAIEnabled = config && config.enabled === true;
+      let fallbackReason: "disabled" | "failed" | null = isDocAIEnabled ? null : "disabled";
       
       // Try Document AI first (if enabled)
       let docAIDocument: CanonicalDocument | null = null;
@@ -302,39 +309,15 @@ export function registerIngestionRoutes(app: Express) {
           // Generate telemetry for successful Document AI
           docAiTelemetry = {
             enabled: true,
-            processor: processorId,
+            processor: processorId ?? null,
             latencyMs,
-            entityCount: docAIResult.document.transactions.length,
+            entityCount: docAIDocument.transactions.length,
           };
         } else {
-          // Log structured error info with full details
-          console.error("[Ingest Route] Document AI failed:", {
-            fileName,
-            documentType,
-            errorCode: docAIResult.error.code,
-            errorMessage: docAIResult.error.message,
-            processorId: docAIResult.error.processorId,
-            errorDetails: docAIResult.error.details,
-            durationMs: latencyMs,
-            fullError: docAIResult.error,
-          });
-
-          logEvent(
-            "ingest_failure",
-            {
-              phase: "docai",
-              fileName,
-              documentType,
-              code: docAIResult.error.code,
-              message: docAIResult.error.message,
-              processorId: docAIResult.error.processorId,
-              details: docAIResult.error.details,
-              durationMs: latencyMs,
-              fullError: docAIResult.error,
-            },
-            "error" // Changed from "warn" to "error" for better visibility
-          );
-
+          // Log Document AI failure
+          console.error(`Document AI failed for ${fileName}:`, docAIResult.error);
+          fallbackReason = "failed";
+          
           docAiFailure = {
             phase: "docai",
             message: docAIResult.error.message ?? "Document AI processing failed",
@@ -362,8 +345,14 @@ export function registerIngestionRoutes(app: Express) {
       }
 
       if (docAIDocument && docAIDocument.transactions.length > 0) {
+        // Automate AI Cleanup (Normalization)
+        const user = (req as any).user;
+        const cleanupResult = await cleanTransactions(docAIDocument.transactions, user?.id);
+        const normalizedTransactions = [...cleanupResult.cleaned, ...cleanupResult.flagged];
+        docAIDocument.transactions = normalizedTransactions;
+
         // Document AI succeeded - store transactions and include export ID
-        const exportId = storeTransactions(docAIDocument.transactions);
+        const exportId = storeTransactions(normalizedTransactions);
         const durationMs = Date.now() - startTime;
         
         // Record ingest telemetry for Document AI success
@@ -376,14 +365,14 @@ export function registerIngestionRoutes(app: Express) {
         });
 
         // Use structured logging for success
-        logIngestionSuccess(exportId, fileName, docAIDocument.transactions.length, "documentai", durationMs);
+        logIngestionSuccess(exportId, fileName, normalizedTransactions.length, "documentai", durationMs);
         logEvent("ingest_complete", {
           source: "documentai",
           fileName,
           documentType,
           processorId,
           processorType,
-          transactionCount: docAIDocument.transactions.length,
+          transactionCount: normalizedTransactions.length,
           durationMs,
           exportId,
         });
@@ -398,18 +387,18 @@ export function registerIngestionRoutes(app: Express) {
         });
       }
 
-      // Document AI failed or disabled - use legacy fallback
-      // "disabled" if Document AI is not enabled, "failed" if enabled but returned null/empty
-      const fallbackReason = !isDocAIEnabled ? "disabled" : "failed";
-
-      // Process with legacy parser
+      // Automate AI Cleanup (Normalization)
       const legacyStartTime = Date.now();
-      const legacyTransactions = (await processLegacyFallback(buffer, documentType, fileName)) ?? [];
+      const legacyTransactions = await processLegacyFallback(buffer, documentType, fileName);
       const legacyDurationMs = Date.now() - legacyStartTime;
-      
+
+      // Automate AI Cleanup (Normalization)
+      const user = (req as any).user;
+      const cleanupResult = await cleanTransactions(legacyTransactions, user?.id);
+      const normalizedTransactions = [...cleanupResult.cleaned, ...cleanupResult.flagged];
       const legacyDoc: CanonicalDocument = {
         documentType,
-        transactions: legacyTransactions,
+        transactions: normalizedTransactions,
         warnings: fallbackReason === "disabled" 
           ? ["Document AI is disabled"] 
           : ["Document AI processing failed, using legacy parser"],
@@ -417,7 +406,7 @@ export function registerIngestionRoutes(app: Express) {
       };
 
       // Store transactions and include export ID
-      const exportId = storeTransactions(legacyTransactions);
+      const exportId = storeTransactions(normalizedTransactions);
       const totalDurationMs = Date.now() - startTime;
 
       // Record ingest telemetry for legacy fallback
@@ -430,12 +419,12 @@ export function registerIngestionRoutes(app: Express) {
       });
 
       // Use structured logging for success
-      logIngestionSuccess(exportId, fileName, legacyTransactions.length, "legacy", totalDurationMs);
+      logIngestionSuccess(exportId, fileName, normalizedTransactions.length, "legacy", totalDurationMs);
       logEvent("ingest_complete", {
         source: "legacy",
         fileName,
         documentType,
-        transactionCount: legacyTransactions.length,
+        transactionCount: normalizedTransactions.length,
         durationMs: totalDurationMs,
         fallbackReason,
         exportId,
@@ -457,46 +446,18 @@ export function registerIngestionRoutes(app: Express) {
       });
     } catch (error) {
       const errorDurationMs = Date.now() - startTime;
-      const exportId = randomUUID(); // Generate export ID for error tracking
-      const errorObj = error instanceof Error ? error : new Error("Failed to ingest document");
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
       
-      // Use structured logging for errors (Google Cloud Error Reporting compatible)
-      logIngestionError(exportId, fileName, errorObj, "extraction");
-      logEvent(
-        "ingest_failure",
-        { phase: "unknown", fileName, documentType, error: serializeError(error), durationMs: errorDurationMs },
-        "error"
-      );
-      
-      const failure: IngestionFailure = {
-        phase: "unknown",
-        message: errorObj.message,
-        ts: Date.now(),
-        hint: `file=${fileName} documentType=${documentType}`,
-      };
-      recordIngestFailure(failure);
-      
-      // Record ingest telemetry for error path
-      recordIngestMetric({
-        source: "error",
+      logEvent("ingest_failure", {
+        phase: "extraction",
+        fileName,
+        error: errorMessage,
         durationMs: errorDurationMs,
-        documentType,
-        timestamp: Date.now(),
-        fallbackReason: "error",
-      });
-      
+      }, "error");
+
       return res.status(500).json({
-        error: "Failed to ingest document",
-        fallback: "legacy",
+        error: errorMessage,
         source: "error",
-        failure,
-        exportId, // Include export ID for error tracking
-        docAiTelemetry: {
-          enabled: false,
-          processor: null,
-          latencyMs: null,
-          entityCount: 0,
-        } satisfies DocumentAiTelemetry,
       });
     }
   });
@@ -612,12 +573,17 @@ export function registerIngestionRoutes(app: Express) {
           source = "legacy";
         }
 
+        // Automate AI Cleanup (Normalization)
+        const user = (req as any).user;
+        const cleanupResult = await cleanTransactions(document.transactions, user?.id);
+        const normalizedTransactions = [...cleanupResult.cleaned, ...cleanupResult.flagged];
+
         // Store transactions
-        const storedExportId = storeTransactions(document.transactions);
+        const storedExportId = storeTransactions(normalizedTransactions);
         const durationMs = Date.now() - fileStartTime;
 
         // Log success
-        logIngestionSuccess(storedExportId, file.fileName, document.transactions.length, source, durationMs);
+        logIngestionSuccess(storedExportId, file.fileName, normalizedTransactions.length, source, durationMs);
 
         // Record metrics
         recordIngestMetric({
@@ -632,7 +598,7 @@ export function registerIngestionRoutes(app: Express) {
           month: extractMonth(file.fileName),
           year: extractYear(file.fileName),
           exportId: storedExportId,
-          transactions: document.transactions.length,
+          transactions: normalizedTransactions.length,
           status: "success",
         });
       } catch (error) {

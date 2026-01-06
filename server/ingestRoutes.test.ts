@@ -7,6 +7,15 @@ import type { CanonicalDocument } from "@shared/transactions";
 import { sampleCanonicalTransactions } from "../fixtures/transactions";
 import { processWithDocumentAI, processWithDocumentAIStructured } from "./_core/documentAIClient";
 import { getDocumentAiConfig } from "./_core/env";
+import { cleanTransactions } from "./aiCleanup";
+
+vi.mock("./aiCleanup", () => ({
+  cleanTransactions: vi.fn(async (txs) => ({
+    cleaned: txs,
+    removed: [],
+    flagged: [],
+  })),
+}));
 
 vi.mock("./_core/documentAIClient", () => ({
   processWithDocumentAI: vi.fn(),
