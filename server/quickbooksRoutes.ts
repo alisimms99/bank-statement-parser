@@ -24,7 +24,7 @@ export function registerQuickbooksRoutes(app: Express) {
       if (!user || !user.id) {
         // Database user.id is required for storing QuickBooks history
         // This can occur when the database is unavailable or user data is malformed
-        return res.status(500).json({ 
+        return res.status(503).json({ 
           error: "User database record required for QuickBooks operations." 
         });
       }
