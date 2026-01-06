@@ -493,9 +493,9 @@ export function registerExportRoutes(app: Express): void {
 
       // Fetch existing hashes for deduplication
       const hashesResponse = await fetchJsonWithAuth(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${escapeSheetTabNameForA1(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${escapeSheetTabNameForA1(
           SHEETS_HASHES_SHEET_TITLE
-        )}'!A:A`,
+        )}!A:A`,
         session.accessToken,
         { method: "GET" }
       );
@@ -1027,9 +1027,9 @@ export function registerExportRoutes(app: Express): void {
 
         // Fetch existing hashes for deduplication
         const hashesResponse = await fetchJsonWithAuth(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${escapeSheetTabNameForA1(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${escapeSheetTabNameForA1(
             SHEETS_HASHES_SHEET_TITLE
-          )}'!A:A`,
+          )}!A:A`,
           session.accessToken,
           { method: "GET" }
         );
