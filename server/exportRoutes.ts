@@ -31,7 +31,8 @@ const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const SHEETS_TRANSACTIONS_SHEET_TITLE = "Transactions";
 const SHEETS_HASHES_SHEET_TITLE = "Transaction Hashes";
 
-// Pattern for extracting YYYY-MM from ISO date format
+// Pattern for extracting YYYY-MM from ISO date format (YYYY-MM-DD)
+// Intentionally uses partial matching to extract period from full date
 const PERIOD_PATTERN = /^(\d{4}-\d{2})/;
 
 function toSheetsRow(tx: CanonicalTransaction): string[] {
@@ -556,9 +557,9 @@ export function registerExportRoutes(app: Express): void {
         
         // Extract YYYY-MM from ISO date format (YYYY-MM-DD)
         const periodMatch = txDate.match(PERIOD_PATTERN);
-        if (!periodMatch) continue;
+        const txPeriod = periodMatch?.[1];
+        if (!txPeriod) continue;
         
-        const txPeriod = periodMatch[1];
         transactionsByPeriod.set(txPeriod, (transactionsByPeriod.get(txPeriod) || 0) + 1);
       }
 
