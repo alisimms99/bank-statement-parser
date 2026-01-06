@@ -96,7 +96,7 @@ export default function ResultPreviewModal({
     } else {
       cancelInFlightCleanup();
     }
-  }, [open, initialTransactions]);
+  }, [open]);
 
   const handleExportCSV = async () => {
     if (transactions.length === 0) {

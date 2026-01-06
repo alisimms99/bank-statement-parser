@@ -9,6 +9,16 @@ export type CleanupResult = {
   flagged: CanonicalTransaction[];
 };
 
+function isCleanupResult(value: unknown): value is CleanupResult {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    Array.isArray(v.cleaned) &&
+    Array.isArray(v.removed) &&
+    Array.isArray(v.flagged)
+  );
+}
+
 // Optional environment-configurable pricing (USD per 1K tokens)
 const INPUT_PRICE_PER_1K = Number(process.env.AI_PRICE_INPUT_PER_1K || 0);
 const OUTPUT_PRICE_PER_1K = Number(process.env.AI_PRICE_OUTPUT_PER_1K || 0);
@@ -68,7 +78,7 @@ export async function cleanTransactions(
 ): Promise<CleanupResult> {
   // Fetch QuickBooks history if userId is provided
   let qbHistory: any[] = [];
-  if (userId) {
+  if (userId !== undefined) {
     qbHistory = await getQuickbooksHistory(userId);
   }
 
@@ -194,7 +204,8 @@ export async function cleanTransactions(
         : Array.isArray(content)
           ? content.map(p => ("text" in p ? p.text : "")).join("\n")
           : "";
-    result = JSON.parse(raw) as CleanupResult;
+    const parsed: unknown = JSON.parse(raw);
+    result = isCleanupResult(parsed) ? parsed : null;
   } catch {
     result = null;
   }
