@@ -90,6 +90,9 @@ export const ENV = {
 
   // Flags
   enableDocAi: process.env.ENABLE_DOC_AI === "true",
+
+  // Google Sheets
+  googleSheetsMasterId: readEnvOrFile("GOOGLE_SHEETS_MASTER_ID"),
 };
 
 // Debug logging for Document AI configuration (remove after debugging)
@@ -133,6 +136,7 @@ warmupSecret(
   v => (ENV.gcpServiceAccountJson = v)
 );
 warmupSecret("BUILT_IN_FORGE_API_KEY", () => ENV.forgeApiKey, v => (ENV.forgeApiKey = v));
+warmupSecret("GOOGLE_SHEETS_MASTER_ID", () => ENV.googleSheetsMasterId, v => (ENV.googleSheetsMasterId = v));
 
 export type DocumentAiProcessorType = "bank" | "invoice" | "ocr" | "form";
 
