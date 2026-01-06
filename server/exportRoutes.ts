@@ -31,6 +31,10 @@ const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const SHEETS_TRANSACTIONS_SHEET_TITLE = "Transactions";
 const SHEETS_HASHES_SHEET_TITLE = "Transaction Hashes";
 
+// Pattern for extracting YYYY-MM from ISO date format (YYYY-MM-DD)
+// Intentionally uses partial matching to extract period from full date
+const PERIOD_PATTERN = /^(\d{4}-\d{2})/;
+
 function toSheetsRow(tx: CanonicalTransaction): string[] {
   // Spec #129 Columns:
   // A: Date
@@ -561,16 +565,32 @@ export function registerExportRoutes(app: Express): void {
       }
 
       // 5. Update Import Log
+      // Group transactions by period once for better performance
+      const transactionsByPeriod = new Map<string, number>();
+      for (const tx of transactions) {
+        const txDate = tx.date ?? tx.posted_date;
+        if (!txDate) continue;
+        
+        // Extract YYYY-MM from ISO date format (YYYY-MM-DD)
+        const periodMatch = txDate.match(PERIOD_PATTERN);
+        const txPeriod = periodMatch?.[1];
+        if (!txPeriod) continue;
+        
+        transactionsByPeriod.set(txPeriod, (transactionsByPeriod.get(txPeriod) || 0) + 1);
+      }
+
       for (let i = 0; i < statement_periods.length; i++) {
         const period = statement_periods[i];
         if (newPeriods.includes(period)) {
+          const periodTransactionCount = transactionsByPeriod.get(period) || 0;
+
           await storeImportLog({
             userId: user.id,
             accountId: account.id,
             statementPeriod: period,
             statementYear: year,
             fileHash: file_hashes?.[i] || null,
-            transactionCount: transactions.length,
+            transactionCount: periodTransactionCount,
             sheetTabName: tabName,
           });
         }
