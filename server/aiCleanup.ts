@@ -68,7 +68,7 @@ export async function cleanTransactions(
 ): Promise<CleanupResult> {
   // Fetch QuickBooks history if userId is provided
   let qbHistory: any[] = [];
-  if (userId) {
+  if (userId !== undefined) {
     qbHistory = await getQuickbooksHistory(userId);
   }
 
