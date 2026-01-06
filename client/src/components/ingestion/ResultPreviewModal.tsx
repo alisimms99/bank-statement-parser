@@ -283,7 +283,7 @@ export default function ResultPreviewModal({
             </TableHeader>
             <TableBody>
               {transactions.map((tx, index) => {
-                const isFlagged = !tx.date;
+                const isFlagged = !tx.date && !tx.posted_date;
                 return (
                   <TableRow 
                     key={index} 
