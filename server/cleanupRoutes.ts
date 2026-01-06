@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { z } from "zod";
 import type { CanonicalTransaction } from "@shared/transactions";
 import { cleanTransactions } from "./aiCleanup";
-import { requireAuth } from "./middleware/auth";
+import { requireAuth, type AuthenticatedRequest } from "./middleware/auth";
 import { logEvent } from "./_core/log";
 
 const cleanupRequestSchema = z.object({
@@ -35,7 +35,7 @@ export function registerCleanupRoutes(app: Express): void {
    * POST /api/cleanup
    * Accepts parsed transactions and returns cleaned/removed/flagged
    */
-  app.post("/api/cleanup", requireAuth, async (req, res) => {
+  app.post("/api/cleanup", requireAuth, async (req: AuthenticatedRequest, res) => {
     const parsed = cleanupRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
@@ -72,7 +72,8 @@ export function registerCleanupRoutes(app: Express): void {
       }));
 
       logEvent("ai_cleanup_start", { count: transactions.length });
-      const result = await cleanTransactions(transactions);
+      const userId = (req.user as any)?.id as number | undefined;
+      const result = await cleanTransactions(transactions, userId);
       return res.json(result);
     } catch (error) {
       console.error("[/api/cleanup] Failed:", error);
