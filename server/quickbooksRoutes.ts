@@ -22,8 +22,11 @@ export function registerQuickbooksRoutes(app: Express) {
     try {
       const user = (req as any).user;
       if (!user || !user.id) {
-        // If user.id is missing, we might need to fetch it from the DB using openId
-        // For now, assume user.id is available if authenticated
+        // Database user.id is required for storing QuickBooks history
+        // This occurs when the database is unavailable and only session data is available
+        return res.status(500).json({ 
+          error: "Database unavailable. Cannot store QuickBooks history without user database record." 
+        });
       }
 
       const parsed = quickbooksUploadSchema.safeParse(req.body);
