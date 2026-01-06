@@ -239,12 +239,13 @@ export async function cleanTransactions(
     result = { cleaned, removed, flagged };
   }
 
-  const usedFallback = !response || !result;
-  const fallbackReason = llmError 
-    ? "api_error" 
-    : (response && !result) 
-      ? "parse_error" 
-      : null;
+  const usedDeterministicFallback = response === null || result === null;
+  let fallbackReason: string | null = null;
+  if (llmError) {
+    fallbackReason = "api_error";
+  } else if (response && !result) {
+    fallbackReason = "parse_error";
+  }
 
   logEvent("ai_cleanup_complete", {
     inputCount: transactions.length,
@@ -255,7 +256,7 @@ export async function cleanTransactions(
     completionTokens: usage?.completion_tokens ?? null,
     totalTokens: usage?.total_tokens ?? null,
     approxCostUsd,
-    usedFallback,
+    usedFallback: usedDeterministicFallback,
     fallbackReason,
   });
 
