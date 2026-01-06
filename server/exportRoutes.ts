@@ -493,9 +493,9 @@ export function registerExportRoutes(app: Express): void {
 
       // Fetch existing hashes for deduplication
       const hashesResponse = await fetchJsonWithAuth(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${escapeSheetTabNameForA1(
-          SHEETS_HASHES_SHEET_TITLE
-        )}!A:A`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+          `${escapeSheetTabNameForA1(SHEETS_HASHES_SHEET_TITLE)}!A:A`
+        )}`,
         session.accessToken,
         { method: "GET" }
       );
@@ -561,8 +561,8 @@ export function registerExportRoutes(app: Express): void {
       }
 
       // 6. Sync CONFIG tabs (Audit Trail)
-      const registrySheet = spreadsheet.sheets.find((s: any) => s.properties.title === "_Account Registry");
-      const importLogSheet = spreadsheet.sheets.find((s: any) => s.properties.title === "_Import Log");
+      let registrySheet = spreadsheet.sheets.find((s: any) => s.properties.title === "_Account Registry");
+      let importLogSheet = spreadsheet.sheets.find((s: any) => s.properties.title === "_Import Log");
       
       const auditRequests: any[] = [];
       if (!registrySheet) {
@@ -578,16 +578,28 @@ export function registerExportRoutes(app: Express): void {
           session.accessToken,
           { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requests: auditRequests }) }
         );
+        // Refresh metadata to capture newly-created sheet IDs
+        const refreshed = await fetchJsonWithAuth(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
+          session.accessToken,
+          { method: "GET" }
+        );
+        registrySheet = refreshed.sheets.find((s: any) => s.properties.title === "_Account Registry");
+        importLogSheet = refreshed.sheets.find((s: any) => s.properties.title === "_Import Log");
       }
 
       // Update Audit Trail Content
       const allAccounts = await getAccounts(user.id);
       const allImports = await getImportLogs(user.id);
 
+      if (!registrySheet || !importLogSheet) {
+        throw new Error("Failed to locate audit sheets after creation");
+      }
+
       const updateAuditRequests = [
         {
           updateCells: {
-            range: { sheetId: (registrySheet || { properties: { sheetId: 0 } }).properties.sheetId, startRowIndex: 0, startColumnIndex: 0 },
+            range: { sheetId: registrySheet.properties.sheetId, startRowIndex: 0, startColumnIndex: 0 },
             rows: [
               asRowData(["ID", "Account Name", "Last 4", "Type", "Issuer", "Active"]),
               ...allAccounts.map(a => asRowData([a.id.toString(), a.accountName, a.accountLast4 || "", a.accountType, a.issuer || "", a.isActive ? "Yes" : "No"]))
@@ -597,7 +609,7 @@ export function registerExportRoutes(app: Express): void {
         },
         {
           updateCells: {
-            range: { sheetId: (importLogSheet || { properties: { sheetId: 0 } }).properties.sheetId, startRowIndex: 0, startColumnIndex: 0 },
+            range: { sheetId: importLogSheet.properties.sheetId, startRowIndex: 0, startColumnIndex: 0 },
             rows: [
               asRowData(["ID", "Account ID", "Period", "Year", "File Hash", "File Name", "Tx Count", "Tab Name", "Imported At"]),
               ...allImports.map((l: any) => asRowData([l.id.toString(), l.accountId?.toString() || "", l.statementPeriod, l.statementYear.toString(), l.fileHash || "", l.fileName || "", l.transactionCount?.toString() || "", l.sheetTabName || "", l.importedAt.toISOString()]))
@@ -1027,9 +1039,9 @@ export function registerExportRoutes(app: Express): void {
 
         // Fetch existing hashes for deduplication
         const hashesResponse = await fetchJsonWithAuth(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${escapeSheetTabNameForA1(
-            SHEETS_HASHES_SHEET_TITLE
-          )}!A:A`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+            `${escapeSheetTabNameForA1(SHEETS_HASHES_SHEET_TITLE)}!A:A`
+          )}`,
           session.accessToken,
           { method: "GET" }
         );
