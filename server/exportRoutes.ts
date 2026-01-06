@@ -12,6 +12,7 @@ import { getAccounts, checkImportExists, storeImportLog, getImportLogs } from ".
 import { verifySessionToken } from "./middleware/auth";
 import { parse as parseCookie } from "cookie";
 import { COOKIE_NAME } from "@shared/const";
+import { normalizeDateString } from "@shared/normalization";
 
 // In-memory store for transactions (keyed by UUID)
 // In production, this could be replaced with Redis or a database
@@ -30,10 +31,6 @@ const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 
 const SHEETS_TRANSACTIONS_SHEET_TITLE = "Transactions";
 const SHEETS_HASHES_SHEET_TITLE = "Transaction Hashes";
-
-// Pattern for extracting YYYY-MM from ISO date format (YYYY-MM-DD)
-// Intentionally uses partial matching to extract period from full date
-const PERIOD_PATTERN = /^(\d{4}-\d{2})/;
 
 function toSheetsRow(tx: CanonicalTransaction): string[] {
   // Spec #129 Columns:
@@ -568,15 +565,40 @@ export function registerExportRoutes(app: Express): void {
       // Group transactions by period once for better performance
       const transactionsByPeriod = new Map<string, number>();
       for (const tx of transactions) {
-        const txDate = tx.date ?? tx.posted_date;
-        if (!txDate) continue;
-        
-        // Extract YYYY-MM from ISO date format (YYYY-MM-DD)
-        const periodMatch = txDate.match(PERIOD_PATTERN);
-        const txPeriod = periodMatch?.[1];
-        if (!txPeriod) continue;
-        
-        transactionsByPeriod.set(txPeriod, (transactionsByPeriod.get(txPeriod) || 0) + 1);
+        // Prefer actual transaction dates, normalize various formats, and handle empty strings.
+        const candidateDates = [tx.date, tx.posted_date].filter(
+          (d) => typeof d === "string" && d.trim().length > 0
+        ) as string[];
+
+        let normalizedDate: string | null = null;
+        for (const d of candidateDates) {
+          const n = normalizeDateString(d, year);
+          if (n) {
+            normalizedDate = n;
+            break;
+          }
+        }
+
+        let txPeriod: string | null = null;
+        if (normalizedDate) {
+          // YYYY-MM from YYYY-MM-DD
+          txPeriod = normalizedDate.slice(0, 7);
+        } else {
+          // Fall back to statement metadata if transaction dates are missing or unparseable
+          const startNorm = normalizeDateString(tx.statement_period?.start ?? null, year);
+          const endNorm = normalizeDateString(tx.statement_period?.end ?? null, year);
+          const sp = startNorm ?? endNorm;
+          if (sp) {
+            txPeriod = sp.slice(0, 7);
+          } else if (Array.isArray(statement_periods) && statement_periods.length === 1) {
+            // Last-resort: if this sync call targets a single period, attribute unknown-date rows to that period
+            txPeriod = statement_periods[0];
+          }
+        }
+
+        if (txPeriod) {
+          transactionsByPeriod.set(txPeriod, (transactionsByPeriod.get(txPeriod) || 0) + 1);
+        }
       }
 
       for (let i = 0; i < statement_periods.length; i++) {
