@@ -74,7 +74,7 @@ async function getSessionFromRequest(req: Request): Promise<SessionPayload | nul
   const authHeader = req.headers.authorization;
   if (authHeader) {
     // RFC 6750: scheme name is case-insensitive
-    const bearerMatch = authHeader.match(/^bearer\s+(.+)$/i);
+    const bearerMatch = authHeader.match(/^bearer\s+(\S+)$/i);
     if (bearerMatch) {
       const token = bearerMatch[1];
       const session = await verifySessionToken(token);
