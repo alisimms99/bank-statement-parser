@@ -1554,7 +1554,7 @@ export function parseDollarBankTableItem(
   const phonePatterns = [
     /\(\d{3}\)\s*\d{3}-\d{4}/,           // (412) 244-8589
     /\d{3}-\d{3}-\d{4}/,                 // 412-244-8589
-    /\d{10}/,                             // 4122448589 (10 consecutive digits)
+    /(?<!\d)\d{10}(?!\.\d)/,             // 4122448589 (10 consecutive digits, not preceded/followed by digits, not followed by decimal)
     /\d{3}\.\d{3}\.\d{4}/,               // 412.244.8589
   ];
   
@@ -1581,7 +1581,9 @@ export function parseDollarBankTableItem(
   // (e.g., "CAPITAL ONE 9279744391 ONLINE PMT") are valid and should not cause rejection.
   
   // Description is everything between date and amount
-  const description = remainder.replace(/([\d,]+\.\d{2})$/, '').trim();
+  // Use cleanedRemainder for consistency - phone numbers removed for amount extraction
+  // should also be removed from description to avoid branch phone numbers appearing
+  const description = cleanedRemainder.replace(/([\d,]+\.\d{2})$/, '').trim();
   
   if (!description) return null;
   

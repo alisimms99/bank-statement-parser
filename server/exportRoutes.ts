@@ -375,11 +375,14 @@ export function registerExportRoutes(app: Express): void {
   app.post("/api/sheets/sync", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const { account_id, year, transactions, statement_periods, file_hashes } = req.body;
+      const { account_id, year, transactions, statement_periods, file_hashes, replace_mode } = req.body;
 
       if (!account_id || !year || !transactions || !statement_periods) {
         return res.status(400).json({ error: "Missing required fields" });
       }
+
+      // replace_mode: if true, clear the tab before writing (for fresh imports)
+      const shouldReplace = replace_mode === true;
 
       // 1. Validate account
       const accounts = await getAccounts(user.id);
@@ -553,6 +556,77 @@ export function registerExportRoutes(app: Express): void {
         (hashesResponse.values || []).map((row: string[]) => row[0])
       );
 
+      // If replace mode, clear the tab first (keep header row)
+      if (shouldReplace && transactionsSheet) {
+        // Get current data to find the last row
+        const currentData = await fetchJsonWithAuth(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+            `${escapeSheetTabNameForA1(finalSheetTabName)}!A:Z`
+          )}`,
+          session.accessToken,
+          { method: "GET" }
+        );
+        
+        // If there's data beyond the header, clear it
+        if (currentData.values && currentData.values.length > 1) {
+          await fetchJsonWithAuth(
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+            session.accessToken,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                requests: [{
+                  deleteDimension: {
+                    range: {
+                      sheetId: transactionsSheet.properties.sheetId,
+                      dimension: "ROWS",
+                      startIndex: 1, // Keep header row (index 0)
+                      endIndex: currentData.values.length,
+                    }
+                  }
+                }]
+              })
+            }
+          );
+          
+          // Also clear the hashes sheet
+          const currentHashes = await fetchJsonWithAuth(
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+              `${escapeSheetTabNameForA1(SHEETS_HASHES_SHEET_TITLE)}!A:A`
+            )}`,
+            session.accessToken,
+            { method: "GET" }
+          );
+          
+          if (currentHashes.values && currentHashes.values.length > 0 && hashesSheet) {
+            await fetchJsonWithAuth(
+              `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+              session.accessToken,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  requests: [{
+                    deleteDimension: {
+                      range: {
+                        sheetId: hashesSheet.properties.sheetId,
+                        dimension: "ROWS",
+                        startIndex: 0,
+                        endIndex: currentHashes.values.length,
+                      }
+                    }
+                  }]
+                })
+              }
+            );
+          }
+          
+          // Reset existing hashes since we cleared the sheet
+          existingHashes.clear();
+        }
+      }
+
       const transactionsToAppend: CanonicalTransaction[] = [];
       const hashesToAppend: string[] = [];
 
@@ -609,16 +683,23 @@ export function registerExportRoutes(app: Express): void {
         }
       }
 
-      // 6. Sync CONFIG tabs (Audit Trail)
-      let registrySheet = spreadsheet.sheets.find((s: any) => s.properties.title === "_Account Registry");
-      let importLogSheet = spreadsheet.sheets.find((s: any) => s.properties.title === "_Import Log");
+      // 6. Sync CONFIG tabs (Audit Trail) - Always ensure these tabs exist
+      // Refresh spreadsheet metadata to get latest sheet list
+      const latestSpreadsheet = await fetchJsonWithAuth(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
+        session.accessToken,
+        { method: "GET" }
+      );
+      
+      let registrySheet = latestSpreadsheet.sheets.find((s: any) => s.properties.title === "_Account Registry");
+      let importLogSheet = latestSpreadsheet.sheets.find((s: any) => s.properties.title === "_Import Log");
       
       const auditRequests: any[] = [];
       if (!registrySheet) {
-        auditRequests.push({ addSheet: { properties: { title: "_Account Registry", index: spreadsheet.sheets.length } } });
+        auditRequests.push({ addSheet: { properties: { title: "_Account Registry", index: latestSpreadsheet.sheets.length } } });
       }
       if (!importLogSheet) {
-        auditRequests.push({ addSheet: { properties: { title: "_Import Log", index: spreadsheet.sheets.length + 1 } } });
+        auditRequests.push({ addSheet: { properties: { title: "_Import Log", index: latestSpreadsheet.sheets.length + (registrySheet ? 0 : 1) } } });
       }
 
       if (auditRequests.length > 0) {
