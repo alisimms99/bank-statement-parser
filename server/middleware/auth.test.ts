@@ -12,12 +12,15 @@ vi.mock("../db", () => ({
   upsertUser: vi.fn(),
 }));
 
-// Mock ENV
+// Mock ENV with test-only secret - DO NOT use in production
 vi.mock("../_core/env", () => ({
   ENV: {
     cookieSecret: "test-secret-key-at-least-32-characters-long",
   },
 }));
+
+// Test-only secret key - must match the mocked ENV value
+const TEST_SECRET = "test-secret-key-at-least-32-characters-long";
 
 function makeApp() {
   const app = express();
@@ -29,7 +32,7 @@ function makeApp() {
 }
 
 async function generateToken(payload: Record<string, unknown>): Promise<string> {
-  const secret = new TextEncoder().encode("test-secret-key-at-least-32-characters-long");
+  const secret = new TextEncoder().encode(TEST_SECRET);
   return await new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
