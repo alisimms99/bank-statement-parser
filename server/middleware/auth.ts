@@ -70,6 +70,15 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
 }
 
 async function getSessionFromRequest(req: Request): Promise<SessionPayload | null> {
+  // 1. Check Authorization header (Bearer token)
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.substring(7);
+    const session = await verifySessionToken(token);
+    if (session) return session;
+  }
+
+  // 2. Fallback to cookie
   const cookieHeader = req.headers.cookie;
   if (!cookieHeader) {
     return null;
