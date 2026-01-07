@@ -69,6 +69,21 @@ function isLikelyBalanceRow(tx: CanonicalTransaction): boolean {
   if (!tx.description && tx.balance !== null && tx.debit === 0 && tx.credit === 0) {
     return true;
   }
+  // Check for date pattern followed by amount (e.g., "11/07 4,861.07")
+  // This is a daily balance summary row, not a transaction
+  const dateAmountPattern = /^\d{1,2}\/\d{1,2}\s+[\d,]+\.\d{2}$/;
+  if (dateAmountPattern.test(tx.description || "")) {
+    return true;
+  }
+  // Check for address keywords (statement headers/footers)
+  const addressKeywords = [
+    "SHOPPING CENTER", "ROAD", "STREET", "AVENUE", "AVE", "BLVD", "BOULEVARD",
+    "DRIVE", "DR", "LANE", "LN", "CIRCLE", "CIR", "COURT", "CT", "PLACE", "PL",
+    "PENN HILLS", "RODI ROAD", "MCKENZIE", "PITTSBURGH", "PA 15235"
+  ];
+  if (addressKeywords.some(keyword => desc.includes(keyword))) {
+    return true;
+  }
   return false;
 }
 
@@ -105,18 +120,26 @@ export async function cleanTransactions(
   const user = [
     "Clean this bank transaction data with the following rules:",
     "",
-    "1) REMOVE rows that are clearly balance summaries:",
+    "1) REMOVE rows that are clearly balance summaries or garbage:",
     "   - No date AND description indicates statement-level balance/summary",
     "   - Rows with only balance value and no meaningful description",
+    "   - Description matches date pattern followed by amount (e.g., '11/07 4,861.07') - these are daily balance summaries",
+    "   - Description contains address keywords like 'SHOPPING CENTER', 'ROAD', 'STREET', 'PENN HILLS', 'RODI ROAD'",
+    "   - Rows with no date but have description/amount (likely header/footer text)",
     "",
-    "2) FLAG rows missing dates for manual review (do NOT remove).",
+    "2) FLAG rows missing dates for manual review (do NOT remove UNLESS they match other removal criteria).",
     "",
     "3) STANDARDIZE merchant names in `payee` when possible:",
     '   - "8433 DBT PURCHASE - 000210 SHEETZ 2468 PITTSBURGH PA" → "Sheetz #2468, Pittsburgh PA"',
     '   - "AMAZON CORP SYF PAYMNT" → "Amazon (Synchrony Payment)"',
     "   Use concise, human-readable names; retain location/store number.",
     "",
-    "4) KEEP all legitimate transactions unchanged.",
+    "4) ADD `category` field when QuickBooks history is provided:",
+    "   - Match transactions to QuickBooks history by payee/description similarity",
+    "   - Use the category from the best matching historical transaction",
+    "   - If no match found, leave category empty or null",
+    "",
+    "5) KEEP all legitimate transactions unchanged.",
     "",
     "Return JSON object with fields: cleaned[], removed[], flagged[].",
     historyContext,
@@ -150,6 +173,7 @@ export async function cleanTransactions(
       },
       ending_balance: { anyOf: [{ type: "number" }, { type: "null" }] },
       inferred_description: { anyOf: [{ type: "string" }, { type: "null" }] },
+      category: { anyOf: [{ type: "string" }, { type: "null" }] },
       metadata: { type: "object" },
     },
     required: [
@@ -272,11 +296,26 @@ export async function cleanTransactions(
     const flagged: CanonicalTransaction[] = [];
     const cleaned: CanonicalTransaction[] = [];
     for (const tx of preprocessed) {
+      // Remove balance rows and garbage first
       if (isLikelyBalanceRow(tx)) {
         removed.push(tx);
         continue;
       }
+      // Remove rows without dates (unless they're flagged for review)
+      // But if description contains address keywords, remove them instead of flagging
+      const desc = (tx.description || "").toUpperCase();
+      const addressKeywords = [
+        "SHOPPING CENTER", "ROAD", "STREET", "AVENUE", "AVE", "BLVD", "BOULEVARD",
+        "DRIVE", "DR", "LANE", "LN", "CIRCLE", "CIR", "COURT", "CT", "PLACE", "PL",
+        "PENN HILLS", "RODI ROAD", "MCKENZIE"
+      ];
       if (!tx.date) {
+        // If it's an address/header row, remove it
+        if (addressKeywords.some(keyword => desc.includes(keyword))) {
+          removed.push(tx);
+          continue;
+        }
+        // Otherwise flag for review
         flagged.push(tx);
         continue;
       }

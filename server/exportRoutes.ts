@@ -42,6 +42,8 @@ function toSheetsRow(tx: CanonicalTransaction): string[] {
   // G: Source File
   // H: Import Date
   
+  // For /api/sheets/sync endpoint: use single Amount column (signed)
+  // Positive = credit, Negative = debit
   const amount = tx.credit !== undefined && tx.credit !== null && tx.credit !== 0 
     ? tx.credit 
     : (tx.debit !== undefined && tx.debit !== null ? -tx.debit : 0);
@@ -55,6 +57,37 @@ function toSheetsRow(tx: CanonicalTransaction): string[] {
     (tx as any).category || "", // Category from AI/QuickBooks
     (tx as any).sourceFile || "",
     new Date().toISOString().split('T')[0], // Import Date
+  ];
+}
+
+/**
+ * Convert transaction to Sheets row format with separate Debit/Credit columns
+ * Used by /api/export/sheets endpoint
+ */
+function toSheetsRowWithDebitCredit(tx: CanonicalTransaction): string[] {
+  // Columns for /api/export/sheets:
+  // A: Date
+  // B: Description
+  // C: Payee
+  // D: Debit (positive number, 0 if credit)
+  // E: Credit (positive number, 0 if debit)
+  // F: Balance
+  // G: Account ID
+  // H: Source Bank
+  // I: Period Start
+  // J: Period End
+  
+  return [
+    tx.date || "",
+    tx.description || "",
+    tx.payee || "",
+    tx.debit?.toString() || "0",
+    tx.credit?.toString() || "0",
+    tx.balance?.toString() || "",
+    tx.account_id || "",
+    tx.source_bank || "",
+    tx.statement_period?.start || "",
+    tx.statement_period?.end || "",
   ];
 }
 
@@ -1090,7 +1123,7 @@ export function registerExportRoutes(app: Express): void {
             {
               appendCells: {
                 sheetId: transactionsSheet!.properties.sheetId,
-                rows: transactionsToAppend.map((tx) => asRowData(toSheetsRow(tx))),
+                rows: transactionsToAppend.map((tx) => asRowData(toSheetsRowWithDebitCredit(tx))),
                 fields: "userEnteredValue",
               },
             },
@@ -1195,7 +1228,7 @@ export function registerExportRoutes(app: Express): void {
           {
             appendCells: {
               sheetId: 0,
-              rows: transactions.map((tx) => asRowData(toSheetsRow(tx))),
+              rows: transactions.map((tx) => asRowData(toSheetsRowWithDebitCredit(tx))),
               fields: "userEnteredValue",
             },
           },

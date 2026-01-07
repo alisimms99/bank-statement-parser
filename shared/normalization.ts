@@ -1548,9 +1548,27 @@ export function parseDollarBankTableItem(
   // Remove date(s) from start
   let remainder = text.replace(/^(\d{2}\/\d{2}\s*)+/, '').trim();
   
+  // Check for phone number patterns BEFORE extracting amount
+  // Phone numbers can appear as: (412) 244-8589, 412-244-8589, 4122448589, etc.
+  // If remainder contains a phone number pattern, exclude it from amount extraction
+  const phonePatterns = [
+    /\(\d{3}\)\s*\d{3}-\d{4}/,           // (412) 244-8589
+    /\d{3}-\d{3}-\d{4}/,                 // 412-244-8589
+    /\d{10}/,                             // 4122448589 (10 consecutive digits)
+    /\d{3}\.\d{3}\.\d{4}/,               // 412.244.8589
+  ];
+  
+  // Remove phone numbers from remainder before amount extraction
+  let cleanedRemainder = remainder;
+  for (const pattern of phonePatterns) {
+    cleanedRemainder = cleanedRemainder.replace(pattern, '');
+  }
+  
   // Extract amount from end - NO dollar sign, just number with optional comma
   // Match: 2,633.00 or 195.00 at the very end
-  const amountMatch = remainder.match(/([\d,]+\.\d{2})$/);
+  // Note: The decimal format (\.\d{2}) naturally prevents phone numbers from matching
+  // Phone numbers like "4122448589" won't match because they lack the decimal point
+  const amountMatch = cleanedRemainder.match(/([\d,]+\.\d{2})$/);
   if (!amountMatch) return null;
   
   const amountStr = amountMatch[1].replace(/,/g, '');
@@ -1558,11 +1576,9 @@ export function parseDollarBankTableItem(
   
   if (isNaN(amount)) return null;
   
-  // Filter out phone numbers masquerading as amounts (e.g., "(412) 244-8589" -> "4122448589")
-  // Phone numbers are typically 10 digits, amounts should be reasonable
-  if (amount > 1000000 && /^\d{10,}$/.test(amountStr)) {
-    return null;
-  }
+  // No need to validate for phone numbers here - the regex pattern already ensures
+  // only amounts with decimal points can be extracted. Phone numbers in descriptions
+  // (e.g., "CAPITAL ONE 9279744391 ONLINE PMT") are valid and should not cause rejection.
   
   // Description is everything between date and amount
   const description = remainder.replace(/([\d,]+\.\d{2})$/, '').trim();
