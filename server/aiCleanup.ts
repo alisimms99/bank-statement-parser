@@ -341,4 +341,3 @@ export async function cleanTransactions(
 
   return result;
 }
-
