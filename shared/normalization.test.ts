@@ -5,6 +5,7 @@ import {
   normalizeDateString,
   normalizeDocumentAITransactions,
   normalizeLegacyTransactions,
+  parseDollarBankTableItem,
   type DocumentAiNormalizedDocument,
 } from "./normalization";
 import { docAiBankFixture, legacyTransactionsFixture } from "../fixtures/transactions";
@@ -132,5 +133,21 @@ describe("Capital One year inference", () => {
 
     const result = normalizeDocumentAITransactions(doc, "bank_statement", 2025, "Statement_012025_9163.pdf");
     expect(result).toEqual(expect.arrayContaining([expect.objectContaining({ posted_date: "2024-12-31" })]));
+  });
+});
+
+describe("Dollar Bank amount parsing (regression)", () => {
+  it("rejects integer-only trailing numbers as amounts", () => {
+    const parsed = parseDollarBankTableItem("06/01 MONTHLY SERVICE FEE 12345", 2025);
+    expect(parsed).toBeNull();
+  });
+
+  it('accepts decimal-only amounts like ".69"', () => {
+    const parsed = parseDollarBankTableItem("06/01 MONTHLY SERVICE FEE .69", 2025);
+    expect(parsed).toMatchObject({
+      date: "2025-06-01",
+      amount: "-$0.69",
+      description: "MONTHLY SERVICE FEE",
+    });
   });
 });
