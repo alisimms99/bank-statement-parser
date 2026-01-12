@@ -150,27 +150,103 @@ function extractCitiTransactionLines(text: string): string[] {
 
 /**
  * Extract transaction lines from raw PDF text for Dollar Bank statements.
- * Dollar Bank format: "06/01 06/01 KFM247 LTD 1813173920 2,633.00"
+ * 
+ * Dollar Bank checking statement formats:
+ *   - "06/01 06/01 KFM247 LTD 1813173920 2,633.00"
+ *   - "06/01 MONTHLY SERVICE FEE 2.00"
+ *   - "04/05 POS SUNOCO 07303589 9099 5.30"
+ *   - "05/21 ATM DB - PENN HILLS 9099 450.00"
+ *   - Multi-line: "03/01 VENMO 3264681992\nPAYMENT 1025529988381 ODD JOBS 195.00"
+ * 
+ * Key characteristics:
+ *   - Date at start: MM/DD or MM/DD MM/DD
+ *   - Amount at end: NO dollar sign, just digits with optional comma
+ *   - Card number (4 digits like 9099) may appear before amount
+ *   - Description in the middle
  */
 function extractDollarBankTransactionLines(text: string): string[] {
   const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
   const transactionLines: string[] = [];
   
-  for (const line of lines) {
-    // Skip headers and addresses
+  // Track multi-line transactions
+  let pendingLine: string | null = null;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // Skip headers, addresses, and summary lines
     if (
-      (line.includes("Date") && line.includes("Description") && line.includes("Amount")) ||
+      (line.includes("Date") && line.includes("Description")) ||
       /PENN HILLS OFFICE/i.test(line) ||
       /218 RODI ROAD/i.test(line) ||
-      /\(412\) 244-8589/i.test(line)
+      /\(412\) 244-8589/i.test(line) ||
+      /LEDGER BALANCE/i.test(line) ||
+      /AVAILABLE BALANCE/i.test(line) ||
+      /DAILY BALANCE/i.test(line) ||
+      /BEGINNING BALANCE/i.test(line) ||
+      /ENDING BALANCE/i.test(line) ||
+      /PAGE \d+ OF \d+/i.test(line) ||
+      /ACCOUNT NUMBER/i.test(line) ||
+      /STATEMENT PERIOD/i.test(line)
     ) {
+      pendingLine = null;
       continue;
     }
     
-    // Match Dollar Bank transaction format: MM/DD MM/DD Description Amount (no $)
-    if (/^\d{2}\/\d{2}\s+(\d{2}\/\d{2}\s+)?.*[\d,]+\.\d{2}$/.test(line)) {
+    // Check if line starts with a date (MM/DD)
+    const startsWithDate = /^\d{2}\/\d{2}\s+/.test(line);
+    
+    // Check if line ends with an amount (digits with optional comma and decimal)
+    const endsWithAmount = /[\d,]+\.\d{2}$/.test(line);
+    
+    // Case 1: Complete transaction on single line
+    if (startsWithDate && endsWithAmount) {
+      // If we have a pending line, it was incomplete - skip it
+      if (pendingLine) {
+        console.log(`[DollarBank Extract] Discarding incomplete pending line: "${pendingLine.substring(0, 50)}"`);
+      }
       transactionLines.push(line);
+      pendingLine = null;
+      continue;
     }
+    
+    // Case 2: Line starts with date but doesn't end with amount (start of multi-line)
+    if (startsWithDate && !endsWithAmount) {
+      pendingLine = line;
+      continue;
+    }
+    
+    // Case 3: Line doesn't start with date but ends with amount (end of multi-line)
+    if (!startsWithDate && endsWithAmount && pendingLine) {
+      // Combine with pending line
+      const combinedLine = pendingLine + ' ' + line;
+      transactionLines.push(combinedLine);
+      pendingLine = null;
+      continue;
+    }
+    
+    // Case 4: Line doesn't start with date and doesn't end with amount (middle of multi-line)
+    if (!startsWithDate && !endsWithAmount && pendingLine) {
+      // Append to pending line
+      pendingLine = pendingLine + ' ' + line;
+      continue;
+    }
+    
+    // Case 5: Standalone amount line (might be continuation we missed)
+    // This handles edge cases where the amount is on its own line
+    if (!startsWithDate && endsWithAmount && !pendingLine) {
+      // Check if previous transaction line might need this amount
+      // This is rare, so we'll log it for debugging
+      console.log(`[DollarBank Extract] Standalone amount line (skipping): "${line}"`);
+      continue;
+    }
+  }
+  
+  // Log extraction results for debugging
+  console.log(`[DollarBank Extract] Extracted ${transactionLines.length} transaction lines from ${lines.length} total lines`);
+  if (transactionLines.length > 0) {
+    console.log(`[DollarBank Extract] First line: "${transactionLines[0].substring(0, 60)}"`);
+    console.log(`[DollarBank Extract] Last line: "${transactionLines[transactionLines.length - 1].substring(0, 60)}"`);
   }
   
   return transactionLines;
