@@ -415,10 +415,23 @@ export function normalizeDocumentAITransactions(
         // Only create transaction if we have required fields
         if (tableItemAmount != null && tableItemDescription) {
           const normalizedDate = normalizeDateString(tableItemDate, statementYear);
+          
+          // ========== DOLLAR BANK FIX ==========
+          // For Dollar Bank: ALWAYS apply our custom sign logic instead of trusting Document AI labels
+          // Document AI often mislabels POS purchases as "deposits" and ATM withdrawals as wrong column
+          if (bankType === 'dollar_bank') {
+            const customSign = getDollarBankSign(tableItemDescription);
+            // Override the amount with correct sign based on our transaction pattern analysis
+            tableItemAmount = customSign * Math.abs(tableItemAmount);
+            console.log(`[Normalization] Dollar Bank sign override: "${tableItemDescription.substring(0, 30)}" -> sign=${customSign}, amount=${tableItemAmount}`);
+          }
+          // ========== END DOLLAR BANK FIX ==========
+          
           const direction = inferDirectionFromEntity(entity);
           
           // Determine debit/credit based on amount sign and direction
-          if (tableItemAmount < 0 || direction === "debit") {
+          // For Dollar Bank, tableItemAmount now has the correct sign from getDollarBankSign
+          if (tableItemAmount < 0 || (bankType !== 'dollar_bank' && direction === "debit")) {
             debit = Math.abs(tableItemAmount);
             credit = 0;
           } else {
@@ -652,9 +665,15 @@ export function normalizeAmount(
   directionHint?: "debit" | "credit"
 ): { debit: number; credit: number } | null {
   const asString = String(rawAmount ?? "");
-  const cleaned = asString.replace(/[^0-9.,()\-]/g, "").replace(/,/g, "");
-  const negative = /-/.test(cleaned) || /\(.*\)/.test(cleaned);
-  const parsed = parseFloat(cleaned.replace(/[()]/g, ""));
+  let cleanedAmount = asString.replace(/[^0-9.,()\-]/g, "").replace(/,/g, "");
+  
+  // Handle amounts that start with decimal point (e.g., ".69")
+  if (cleanedAmount.startsWith('.')) {
+    cleanedAmount = '0' + cleanedAmount;
+  }
+  
+  const negative = /-/.test(cleanedAmount) || /\(.*\)/.test(cleanedAmount);
+  const parsed = parseFloat(cleanedAmount.replace(/[()]/g, ""));
 
   if (Number.isNaN(parsed)) return null;
 
@@ -1489,37 +1508,122 @@ export function parseAmexTableItem(
 
 /**
  * Determine sign for Dollar Bank transactions based on description
- * Returns: 1 for credits (positive), -1 for debits (negative)
+ * Returns: 1 for credits (positive/deposits), -1 for debits (negative/withdrawals)
  * 
- * Key insight: Business income has "ODD JOBS" and is NOT a payment.
- * Everything else defaults to debit (expense).
+ * Key insight: Dollar Bank statements show DEBITS (money out) and CREDITS (money in)
+ * We determine which based on transaction description patterns.
+ * 
+ * DEBITS (money OUT, negative):
+ *   - POS purchases (POS SUNOCO, POS FEDEX, etc.)
+ *   - ATM withdrawals (ATM DB - PENN HILLS)
+ *   - ACH payments (CAPITAL ONE PMT, AMEX EPAYMENT, CHASE AUTOPAY)
+ *   - Fees (MONTHLY SERVICE FEE, OVERDRAFT FEE)
+ *   - Checks (CHECKS CLEARED)
+ *   - Online payments (ONLINE PMT)
+ *   - Transfers out (PAYPAL INST XFER when paying someone)
+ * 
+ * CREDITS (money IN, positive):
+ *   - Business income deposits (KFM247 LTD, ACH deposits with ODD JOBS)
+ *   - Payroll/direct deposits (PAYROLL, EDI PYMNTS)
+ *   - Venmo payments received (VENMO...PAYMENT...ODD JOBS)
+ *   - Bank adjustments (ADJ)
+ *   - Deposits (DEPOSIT)
  */
 export function getDollarBankSign(description: string): number {
   const descUpper = description.toUpperCase();
   
-  // POS and ATM transactions are ALWAYS debits - check first
-  // Even if "ODD JOBS" appears (it's the card owner name, not income)
+  // ===== DEBITS (money OUT) - Check these patterns FIRST =====
+  
+  // POS purchases are ALWAYS debits
   if (/^POS\s/i.test(description)) return -1;
-  if (/^ATM\s/i.test(description)) return -1;
   
-  // Credits (positive) - money coming IN
-  // Must be specific patterns or business income with "ODD JOBS" (not payments)
-  if (/KFM247/i.test(description)) return 1;                              // Regular business deposits
-  if (/NSM DBAMR/i.test(description)) return 1;                            // Mortgage/deposits
-  if (/^ADJ\s/i.test(description)) return 1;                                // Adjustments/refunds
-  if (/ODD JOBS/i.test(description) && !/PMT|PAYMENT|AUTOPAY/i.test(descUpper)) return 1; // Business income (not payments)
+  // ATM withdrawals are ALWAYS debits
+  if (/^ATM\s/i.test(description) || /ATM DB\s*-/i.test(description)) return -1;
   
-  // Everything else is a debit (negative) - money going OUT
+  // Overdraft fees are debits
+  if (/OVERDRAFT FEE/i.test(description)) return -1;
+  
+  // Monthly service fees are debits
+  if (/MONTHLY SERVICE FEE/i.test(description)) return -1;
+  
+  // Credit card payments are debits (money going OUT to pay cards)
+  if (/CAPITAL ONE.*PMT|CAPITAL ONE.*PAYMENT/i.test(description)) return -1;
+  if (/AMEX.*EPAYMENT|AMEX.*PAYMENT/i.test(description)) return -1;
+  if (/CHASE.*AUTOPAY|CHASE.*PAYMENT/i.test(description)) return -1;
+  if (/UPGRADE.*PAYMENT/i.test(description)) return -1;
+  if (/CITI.*PAYMENT|CITI.*PMT/i.test(description)) return -1;
+  
+  // Online payments are debits
+  if (/ONLINE PMT|ONLINE PAYMENT/i.test(description)) return -1;
+  
+  // ACH debits (payments to vendors/services)
+  if (/ACH.*DEBIT/i.test(description)) return -1;
+  
+  // Checks cleared are debits
+  if (/CHECKS? CLEARED/i.test(description)) return -1;
+  
+  // PayPal instant transfers OUT are debits (unless receiving payment)
+  if (/PAYPAL.*INST XFER/i.test(description) && !/ODD JOBS/i.test(description)) return -1;
+  
+  // Insurance payments are debits
+  if (/ACUITY.*INS/i.test(description)) return -1;
+  
+  // Tax payments are debits
+  if (/IRS.*USATAXPYMT/i.test(description)) return -1;
+  
+  // Springwise payments TO the business are credits, but payments FROM are debits
+  if (/SPRINGWISE/i.test(description) && !/ODD JOBS/i.test(description)) return -1;
+  
+  // ===== CREDITS (money IN) =====
+  
+  // KFM247 is business income (deposits from property management)
+  if (/KFM247/i.test(description)) return 1;
+  
+  // NSM DBAMR is mortgage/deposit related
+  if (/NSM DBAMR/i.test(description)) return 1;
+  
+  // Bank adjustments are typically credits (refunds, corrections)
+  if (/^ADJ\s/i.test(description)) return 1;
+  
+  // Deposits are credits
+  if (/\bDEPOSIT\b/i.test(description)) return 1;
+  
+  // Payroll/direct deposit is credit
+  if (/PAYROLL|EDI PYMNTS/i.test(description)) return 1;
+  
+  // Venmo payments TO ODD JOBS are credits (business income)
+  if (/VENMO/i.test(description) && /ODD JOBS/i.test(description)) return 1;
+  
+  // Springwise payments TO ODD JOBS are credits (business income)
+  if (/SPRINGWISE/i.test(description) && /ODD JOBS/i.test(description)) return 1;
+  
+  // Generic ODD JOBS mentions that aren't payments OUT are credits (business income)
+  // But NOT if it's a payment (PMT, PAYMENT, AUTOPAY)
+  if (/ODD JOBS/i.test(description) && !/PMT|PAYMENT|AUTOPAY|EPAYMENT/i.test(descUpper)) {
+    return 1;
+  }
+  
+  // ACH credits are deposits
+  if (/ACH.*CREDIT/i.test(description)) return 1;
+  
+  // ===== DEFAULT: Debit (money OUT) =====
+  // If we can't determine the type, assume it's a debit (safer for expense tracking)
+  console.log(`[DollarBank] Unknown transaction type, defaulting to DEBIT: "${description.substring(0, 50)}"`);
   return -1;
 }
 
 /**
  * Parse Dollar Bank table_item format
- * Format: "06/01 06/01 KFM247 LTD 1813173920 2,633.00"
- *         "06/01 MONTHLY SERVICE FEE 2.00"
- *         "03/01 VENMO 3264681992\nPAYMENT 1025529988381 ODD JOBS 195.00"
- *         "05/01 CAPITAL ONE 9279744391\nONLINE PMT 3RIWAA4RW7JVXF1 ALI SIMMS 1,117.43"
- * Pattern: Date(s) at start (MM/DD), description in middle, amount at end (NO dollar sign)
+ * 
+ * Dollar Bank checking statements have TWO amount columns: DEBIT (withdrawals) and CREDIT (deposits)
+ * The format varies:
+ *   - Single date: "06/01 MONTHLY SERVICE FEE 2.00"
+ *   - Double date: "06/01 06/01 KFM247 LTD 1813173920 2,633.00"
+ *   - Multi-line: "03/01 VENMO 3264681992\nPAYMENT 1025529988381 ODD JOBS 195.00"
+ *   - Card suffix: "04/05 POS SUNOCO 07303589 9099 5.30" (9099 is card last 4)
+ * 
+ * Amount is at the END, NO dollar sign, just number with optional comma
+ * The 4-digit card number (9099) appears before amounts for card transactions
  */
 export function parseDollarBankTableItem(
   mentionText: string | undefined,
@@ -1533,10 +1637,15 @@ export function parseDollarBankTableItem(
     return null;
   }
   
-  // Flatten newlines
+  // Filter out header rows and summary lines
+  if (/^LEDGER BALANCE|^AVAILABLE BALANCE|^DAILY BALANCE|^DATE\s+DESCRIPTION/i.test(mentionText)) {
+    return null;
+  }
+  
+  // Flatten newlines to single line
   const text = mentionText.replace(/\n/g, ' ').trim();
   
-  // Extract date from start: MM/DD or MM/DD MM/DD (duplicated)
+  // Extract date from start: MM/DD or MM/DD MM/DD (duplicated posting/transaction date)
   const dateMatch = text.match(/^(\d{2})\/(\d{2})(?:\s+\d{2}\/\d{2})?\s+/);
   if (!dateMatch) return null;
   
@@ -1545,52 +1654,68 @@ export function parseDollarBankTableItem(
   const year = statementYear || new Date().getFullYear();
   const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   
-  // Remove date(s) from start
+  // Remove date(s) from start to get remainder
   let remainder = text.replace(/^(\d{2}\/\d{2}\s*)+/, '').trim();
   
-  // Check for phone number patterns BEFORE extracting amount
-  // Phone numbers can appear as: (412) 244-8589, 412-244-8589, 4122448589, etc.
-  // If remainder contains a phone number pattern, exclude it from amount extraction
+  // Remove phone number patterns that could interfere with amount extraction
   const phonePatterns = [
-    /\(\d{3}\)\s*\d{3}-\d{4}/,           // (412) 244-8589
-    /\d{3}-\d{3}-\d{4}/,                 // 412-244-8589
-    /\d{10}/,                             // 4122448589 (10 consecutive digits)
-    /\d{3}\.\d{3}\.\d{4}/,               // 412.244.8589
+    /\(\d{3}\)\s*\d{3}-\d{4}/g,           // (412) 244-8589
+    /\d{3}-\d{3}-\d{4}/g,                 // 412-244-8589
+    /\d{3}\.\d{3}\.\d{4}/g,               // 412.244.8589
   ];
   
-  // Remove phone numbers from remainder before amount extraction
   let cleanedRemainder = remainder;
   for (const pattern of phonePatterns) {
-    cleanedRemainder = cleanedRemainder.replace(pattern, '');
+    cleanedRemainder = cleanedRemainder.replace(pattern, ' ');
   }
   
   // Extract amount from end - NO dollar sign, just number with optional comma
-  // Match: 2,633.00 or 195.00 at the very end
-  // Note: The decimal format (\.\d{2}) naturally prevents phone numbers from matching
-  // Phone numbers like "4122448589" won't match because they lack the decimal point
-  const amountMatch = cleanedRemainder.match(/([\d,]+\.\d{2})$/);
+  // Handles: "2,633.00", "195.00", "5.30", ".69"
+  // The card number (4 digits like 9099) appears BEFORE the amount, not after
+  // Pattern: optional card number (4 digits + space), then amount at end
+  const amountMatch = cleanedRemainder.match(/(?:\s+\d{4}\s+)?([\d,]*\.\d{1,2})$/);
   if (!amountMatch) return null;
   
-  const amountStr = amountMatch[1].replace(/,/g, '');
+  let amountStr = amountMatch[1].replace(/,/g, '');
+  
+  // Handle decimal amounts starting with "." (e.g., ".69" -> "0.69")
+  if (amountStr.startsWith('.')) {
+    amountStr = '0' + amountStr;
+  }
+  
   const amount = parseFloat(amountStr);
   
-  if (isNaN(amount)) return null;
+  if (isNaN(amount) || amount === 0) return null;
   
-  // No need to validate for phone numbers here - the regex pattern already ensures
-  // only amounts with decimal points can be extracted. Phone numbers in descriptions
-  // (e.g., "CAPITAL ONE 9279744391 ONLINE PMT") are valid and should not cause rejection.
+  // Validate amount is reasonable (filter out phone numbers and account numbers)
+  // Phone numbers don't have decimal points, but account numbers might look like amounts
+  // Valid transaction amounts are typically < $100,000
+  if (amount > 100000) {
+    console.log(`[DollarBank] Rejecting suspicious amount: ${amount} from "${cleanedRemainder.substring(0, 50)}"`);
+    return null;
+  }
   
   // Description is everything between date and amount
-  const description = remainder.replace(/([\d,]+\.\d{2})$/, '').trim();
+  // Also remove the card number (4 digits) if present at the end before amount
+  let description = cleanedRemainder
+    .replace(/(?:\s+\d{4})?\s*([\d,]*\.\d{1,2})$/, '')  // Remove card# and amount
+    .trim();
+  
+  // Clean up description - remove trailing card numbers that might be left
+  description = description.replace(/\s+\d{4}$/, '').trim();
   
   if (!description) return null;
   
-  // Determine sign based on transaction type
+  // Determine sign based on transaction type using our pattern analysis
   const sign = getDollarBankSign(description);
   const signedAmount = sign * amount;
   
   // Format amount as string with correct sign
-  const amountString = signedAmount < 0 ? `-$${Math.abs(signedAmount).toFixed(2)}` : `$${signedAmount.toFixed(2)}`;
+  const amountString = signedAmount < 0 
+    ? `-$${Math.abs(signedAmount).toFixed(2)}` 
+    : `$${signedAmount.toFixed(2)}`;
+  
+  console.log(`[DollarBank] Parsed: "${description.substring(0, 40)}" -> ${amountString} (sign=${sign})`);
   
   return {
     date,
