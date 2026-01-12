@@ -212,6 +212,11 @@ function extractDollarBankTransactionLines(text: string): string[] {
     
     // Case 2: Line starts with date but doesn't end with amount (start of multi-line)
     if (startsWithDate && !endsWithAmount) {
+      // If we already have a pending line, it was incomplete and is being overwritten.
+      // Log it for debugging consistency with Case 1.
+      if (pendingLine) {
+        console.log(`[DollarBank Extract] Discarding incomplete pending line: "${pendingLine.substring(0, 50)}"`);
+      }
       pendingLine = line;
       continue;
     }
