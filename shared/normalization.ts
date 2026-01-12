@@ -1673,7 +1673,7 @@ export function parseDollarBankTableItem(
   // Handles: "2,633.00", "195.00", "5.30", ".69"
   // The card number (4 digits like 9099) appears BEFORE the amount, not after
   // Pattern: optional card number (4 digits + space), then amount at end
-  const amountMatch = cleanedRemainder.match(/(?:\s+\d{4}\s+)?([\d,]*\.?\d{1,2})$/);
+  const amountMatch = cleanedRemainder.match(/(?:\s+\d{4}\s+)?([\d,]*\.\d{1,2})$/);
   if (!amountMatch) return null;
   
   let amountStr = amountMatch[1].replace(/,/g, '');
@@ -1698,7 +1698,7 @@ export function parseDollarBankTableItem(
   // Description is everything between date and amount
   // Also remove the card number (4 digits) if present at the end before amount
   let description = cleanedRemainder
-    .replace(/(?:\s+\d{4})?\s*([\d,]*\.?\d{1,2})$/, '')  // Remove card# and amount
+    .replace(/(?:\s+\d{4})?\s*([\d,]*\.\d{1,2})$/, '')  // Remove card# and amount
     .trim();
   
   // Clean up description - remove trailing card numbers that might be left
