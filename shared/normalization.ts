@@ -1597,6 +1597,13 @@ export function getDollarBankSign(description: string): number {
   // Springwise payments TO ODD JOBS are credits (business income)
   if (/SPRINGWISE/i.test(description) && /ODD JOBS/i.test(description)) return 1;
   
+  // PayPal transfers TO the account owner are credits (money received)
+  if (/PAYPAL.*TRANSFER/i.test(description) && /ALI SIMMS/i.test(description)) return 1;
+  
+  // FSI-ACH-PAYMENT (FSI = business client) with ODD JOBS is business income
+  if (/FSI-ACH-PAYMENT/i.test(description)) return 1;
+  if (/FSI.*TRADE PAY/i.test(description)) return 1;
+  
   // Generic ODD JOBS mentions that aren't payments OUT are credits (business income)
   // But NOT if it's a payment (PMT, PAYMENT, AUTOPAY)
   if (/ODD JOBS/i.test(description) && !/PMT|PAYMENT|AUTOPAY|EPAYMENT/i.test(descUpper)) {
@@ -1630,6 +1637,12 @@ export function parseDollarBankTableItem(
   statementYear?: number
 ): { date: string; amount: string; description: string } | null {
   if (!mentionText) return null;
+  
+  // Filter out phantom/malformed entries (random text that isn't a transaction)
+  // Pattern: "Z MARUYOGA WELLNGARBAGE" - single letter followed by uppercase words
+  if (/^Z\s+[A-Z]{3,}/i.test(mentionText)) {
+    return null;
+  }
   
   // Filter out branch addresses and phone numbers BEFORE parsing
   // Must run at the very start to prevent parsing garbage entries
