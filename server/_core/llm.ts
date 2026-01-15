@@ -51,14 +51,17 @@ export type ToolChoiceExplicit = {
 };
 export type ToolChoice = ToolChoicePrimitive | ToolChoiceByName | ToolChoiceExplicit;
 
-export type ResponseFormat = "text" | "json_object" | "json_schema";
+export type ResponseFormat =
+  | { type: "text" }
+  | { type: "json_object" }
+  | { type: "json_schema"; json_schema: JsonSchema };
 export type JsonSchema = {
   name: string;
   description?: string;
   schema: Record<string, unknown>;
   strict?: boolean;
 };
-export type OutputSchema = JsonSchema["schema"];
+export type OutputSchema = JsonSchema;
 
 export type InvokeParams = {
   messages: Message[];
@@ -166,21 +169,32 @@ const normalizeResponseFormat = ({
   | undefined => {
   const explicitFormat = responseFormat || response_format;
   if (explicitFormat) {
-    if (explicitFormat === "text") return { type: "text" };
-    if (explicitFormat === "json_object") return { type: "json_object" };
+    if (
+      explicitFormat.type === "json_schema" &&
+      !explicitFormat.json_schema?.schema
+    ) {
+      throw new Error(
+        "responseFormat json_schema requires a defined schema object"
+      );
+    }
+    return explicitFormat;
   }
+
   const schema = outputSchema || output_schema;
-  if (schema) {
-    return {
-      type: "json_schema",
-      json_schema: {
-        name: "output",
-        schema,
-        strict: true,
-      },
-    };
+  if (!schema) return undefined;
+
+  if (!schema.name || !schema.schema) {
+    throw new Error("outputSchema requires both name and schema");
   }
-  return undefined;
+
+  return {
+    type: "json_schema",
+    json_schema: {
+      name: schema.name,
+      schema: schema.schema,
+      ...(typeof schema.strict === "boolean" ? { strict: schema.strict } : {}),
+    },
+  };
 };
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
