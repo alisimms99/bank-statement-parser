@@ -25,9 +25,9 @@ function buildCspDirectives() {
   if (isDev) {
     return [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com",
       "style-src 'self' 'unsafe-inline'",
-      "connect-src 'self' http://localhost:5173 ws://localhost:5173 http://127.0.0.1:5173",
+      "connect-src 'self' http://localhost:5173 ws://localhost:5173 http://127.0.0.1:5173 https://apis.google.com https://sheets.googleapis.com https://www.googleapis.com",
       "img-src 'self' data:",
       "font-src 'self' data:",
       "frame-ancestors 'self'",
@@ -36,11 +36,11 @@ function buildCspDirectives() {
 
   return [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' data: https://fonts.gstatic.com",
     "img-src 'self' data: https://lh3.googleusercontent.com",
-    "connect-src 'self' https://us-documentai.googleapis.com https://*.googleapis.com",
+    "connect-src 'self' https://us-documentai.googleapis.com https://*.googleapis.com https://apis.google.com https://sheets.googleapis.com https://www.googleapis.com",
     "object-src 'none'",
     "base-uri 'self'",
     "frame-ancestors 'none'",
