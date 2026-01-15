@@ -52,6 +52,9 @@ export const ENV = {
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: readEnvOrFile("BUILT_IN_FORGE_API_KEY") || (process.env.BUILT_IN_FORGE_API_KEY ?? ""),
 
+  // OpenAI
+  openaiApiKey: readEnvOrFile("OPENAI_API_KEY") || (process.env.OPENAI_API_KEY ?? ""),
+
   // Server
   port: process.env.PORT ?? "",
   corsAllowOrigin: readEnvOrFile("CORS_ALLOW_ORIGIN"),
@@ -136,6 +139,7 @@ warmupSecret(
   v => (ENV.gcpServiceAccountJson = v)
 );
 warmupSecret("BUILT_IN_FORGE_API_KEY", () => ENV.forgeApiKey, v => (ENV.forgeApiKey = v));
+warmupSecret("OPENAI_API_KEY", () => ENV.openaiApiKey, v => (ENV.openaiApiKey = v));
 warmupSecret("GOOGLE_SHEETS_MASTER_ID", () => ENV.googleSheetsMasterId, v => (ENV.googleSheetsMasterId = v));
 
 export type DocumentAiProcessorType = "bank" | "invoice" | "ocr" | "form";

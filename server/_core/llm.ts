@@ -19,7 +19,7 @@ export type FileContent = {
   type: "file_url";
   file_url: {
     url: string;
-    mime_type?: "audio/mpeg" | "audio/wav" | "application/pdf" | "audio/mp4" | "video/mp4" ;
+    mime_type?: "audio/mpeg" | "audio/wav" | "application/pdf" | "audio/mp4" | "video/mp4";
   };
 };
 
@@ -49,11 +49,16 @@ export type ToolChoiceExplicit = {
     name: string;
   };
 };
+export type ToolChoice = ToolChoicePrimitive | ToolChoiceByName | ToolChoiceExplicit;
 
-export type ToolChoice =
-  | ToolChoicePrimitive
-  | ToolChoiceByName
-  | ToolChoiceExplicit;
+export type ResponseFormat = "text" | "json_object" | "json_schema";
+export type JsonSchema = {
+  name: string;
+  description?: string;
+  schema: Record<string, unknown>;
+  strict?: boolean;
+};
+export type OutputSchema = JsonSchema["schema"];
 
 export type InvokeParams = {
   messages: Message[];
@@ -69,28 +74,25 @@ export type InvokeParams = {
   response_format?: ResponseFormat;
 };
 
-export type ToolCall = {
-  id: string;
-  type: "function";
-  function: {
-    name: string;
-    arguments: string;
-  };
-};
-
 export type InvokeResult = {
   id: string;
-  created: number;
   model: string;
-  choices: Array<{
+  choices: {
     index: number;
     message: {
-      role: Role;
-      content: string | Array<TextContent | ImageContent | FileContent>;
-      tool_calls?: ToolCall[];
+      role: string;
+      content: string | null;
+      tool_calls?: {
+        id: string;
+        type: string;
+        function: {
+          name: string;
+          arguments: string;
+        };
+      }[];
     };
-    finish_reason: string | null;
-  }>;
+    finish_reason: string;
+  }[];
   usage?: {
     prompt_tokens: number;
     completion_tokens: number;
@@ -98,127 +100,53 @@ export type InvokeResult = {
   };
 };
 
-export type JsonSchema = {
-  name: string;
-  schema: Record<string, unknown>;
-  strict?: boolean;
-};
+// Determine which API to use
+type ApiProvider = "openai" | "forge";
 
-export type OutputSchema = JsonSchema;
-
-export type ResponseFormat =
-  | { type: "text" }
-  | { type: "json_object" }
-  | { type: "json_schema"; json_schema: JsonSchema };
-
-const ensureArray = (
-  value: MessageContent | MessageContent[]
-): MessageContent[] => (Array.isArray(value) ? value : [value]);
-
-const normalizeContentPart = (
-  part: MessageContent
-): TextContent | ImageContent | FileContent => {
-  if (typeof part === "string") {
-    return { type: "text", text: part };
+function getApiProvider(): ApiProvider {
+  // Prefer OpenAI if key is available
+  if (ENV.openaiApiKey && ENV.openaiApiKey.trim().length > 0) {
+    return "openai";
   }
-
-  if (part.type === "text") {
-    return part;
+  // Fall back to Forge if available
+  if (ENV.forgeApiKey && ENV.forgeApiKey.trim().length > 0) {
+    return "forge";
   }
+  throw new Error("No LLM API key configured. Set OPENAI_API_KEY or BUILT_IN_FORGE_API_KEY");
+}
 
-  if (part.type === "image_url") {
-    return part;
+function getApiUrl(provider: ApiProvider): string {
+  if (provider === "openai") {
+    return "https://api.openai.com/v1/chat/completions";
   }
-
-  if (part.type === "file_url") {
-    return part;
-  }
-
-  throw new Error("Unsupported message content part");
-};
-
-const normalizeMessage = (message: Message) => {
-  const { role, name, tool_call_id } = message;
-
-  if (role === "tool" || role === "function") {
-    const content = ensureArray(message.content)
-      .map(part => (typeof part === "string" ? part : JSON.stringify(part)))
-      .join("\n");
-
-    return {
-      role,
-      name,
-      tool_call_id,
-      content,
-    };
-  }
-
-  const contentParts = ensureArray(message.content).map(normalizeContentPart);
-
-  // If there's only text content, collapse to a single string for compatibility
-  if (contentParts.length === 1 && contentParts[0].type === "text") {
-    return {
-      role,
-      name,
-      content: contentParts[0].text,
-    };
-  }
-
-  return {
-    role,
-    name,
-    content: contentParts,
-  };
-};
-
-const normalizeToolChoice = (
-  toolChoice: ToolChoice | undefined,
-  tools: Tool[] | undefined
-): "none" | "auto" | ToolChoiceExplicit | undefined => {
-  if (!toolChoice) return undefined;
-
-  if (toolChoice === "none" || toolChoice === "auto") {
-    return toolChoice;
-  }
-
-  if (toolChoice === "required") {
-    if (!tools || tools.length === 0) {
-      throw new Error(
-        "tool_choice 'required' was provided but no tools were configured"
-      );
-    }
-
-    if (tools.length > 1) {
-      throw new Error(
-        "tool_choice 'required' needs a single tool or specify the tool name explicitly"
-      );
-    }
-
-    return {
-      type: "function",
-      function: { name: tools[0].function.name },
-    };
-  }
-
-  if ("name" in toolChoice) {
-    return {
-      type: "function",
-      function: { name: toolChoice.name },
-    };
-  }
-
-  return toolChoice;
-};
-
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
+  // Forge
+  return ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
     ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
     : "https://forge.manus.im/v1/chat/completions";
+}
 
-const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
+function getApiKey(provider: ApiProvider): string {
+  if (provider === "openai") {
+    return ENV.openaiApiKey;
   }
+  return ENV.forgeApiKey;
+}
+
+function getDefaultModel(provider: ApiProvider): string {
+  if (provider === "openai") {
+    return "gpt-4o-mini"; // Cost-effective for cleanup tasks
+  }
+  return "gemini-2.5-flash";
+}
+
+const normalizeMessage = (msg: Message): Record<string, unknown> => {
+  const result: Record<string, unknown> = {
+    role: msg.role,
+    content: msg.content,
+  };
+  if (msg.name) result.name = msg.name;
+  if (msg.tool_call_id) result.tool_call_id = msg.tool_call_id;
+  return result;
 };
 
 const normalizeResponseFormat = ({
@@ -238,36 +166,30 @@ const normalizeResponseFormat = ({
   | undefined => {
   const explicitFormat = responseFormat || response_format;
   if (explicitFormat) {
-    if (
-      explicitFormat.type === "json_schema" &&
-      !explicitFormat.json_schema?.schema
-    ) {
-      throw new Error(
-        "responseFormat json_schema requires a defined schema object"
-      );
-    }
-    return explicitFormat;
+    if (explicitFormat === "text") return { type: "text" };
+    if (explicitFormat === "json_object") return { type: "json_object" };
   }
-
   const schema = outputSchema || output_schema;
-  if (!schema) return undefined;
-
-  if (!schema.name || !schema.schema) {
-    throw new Error("outputSchema requires both name and schema");
+  if (schema) {
+    return {
+      type: "json_schema",
+      json_schema: {
+        name: "output",
+        schema,
+        strict: true,
+      },
+    };
   }
-
-  return {
-    type: "json_schema",
-    json_schema: {
-      name: schema.name,
-      schema: schema.schema,
-      ...(typeof schema.strict === "boolean" ? { strict: schema.strict } : {}),
-    },
-  };
+  return undefined;
 };
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
+  const provider = getApiProvider();
+  const apiUrl = getApiUrl(provider);
+  const apiKey = getApiKey(provider);
+  const defaultModel = getDefaultModel(provider);
+
+  console.log(`[LLM] Using provider: ${provider}`);
 
   const {
     messages,
@@ -284,52 +206,40 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: model || "gemini-2.5-flash",
+    model: model || defaultModel,
     messages: messages.map(normalizeMessage),
   };
 
+  const resolvedMaxTokens = maxTokens ?? max_tokens;
+  if (resolvedMaxTokens) payload.max_tokens = resolvedMaxTokens;
+
   if (tools && tools.length > 0) {
     payload.tools = tools;
-  }
-
-  const normalizedToolChoice = normalizeToolChoice(
-    toolChoice || tool_choice,
-    tools
-  );
-  if (normalizedToolChoice) {
-    payload.tool_choice = normalizedToolChoice;
-  }
-
-  const resolvedMaxTokens = maxTokens ?? max_tokens;
-  if (typeof resolvedMaxTokens !== "undefined") {
-    if (!Number.isFinite(resolvedMaxTokens) || resolvedMaxTokens <= 0) {
-      throw new Error("maxTokens must be a positive finite number");
+    const tc = toolChoice || tool_choice;
+    if (tc) {
+      if (typeof tc === "string") {
+        payload.tool_choice = tc;
+      } else if ("name" in tc) {
+        payload.tool_choice = { type: "function", function: { name: tc.name } };
+      } else {
+        payload.tool_choice = tc;
+      }
     }
-    payload.max_tokens = Math.floor(resolvedMaxTokens);
-  } else {
-    payload.max_tokens = 32768;
   }
 
-  payload.thinking = {
-    budget_tokens: 128,
-  };
-
-  const normalizedResponseFormat = normalizeResponseFormat({
+  const fmt = normalizeResponseFormat({
     responseFormat,
     response_format,
     outputSchema,
     output_schema,
   });
+  if (fmt) payload.response_format = fmt;
 
-  if (normalizedResponseFormat) {
-    payload.response_format = normalizedResponseFormat;
-  }
-
-  const response = await fetch(resolveApiUrl(), {
+  const response = await fetch(apiUrl, {
     method: "POST",
     headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(payload),
   });
