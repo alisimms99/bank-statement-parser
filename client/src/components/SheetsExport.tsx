@@ -18,6 +18,10 @@ export default function SheetsExport({ transactions, disabled }: SheetsExportPro
   const [isExporting, setIsExporting] = useState(false);
 
   const handleExport = async () => {
+    if (disabled) {
+      return;
+    }
+
     if (!spreadsheetId.trim()) {
       toast.error("Please enter a Google Sheets ID");
       return;
