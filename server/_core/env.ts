@@ -53,8 +53,9 @@ export const ENV = {
   // Forge API key with OPENAI_API_KEY fallback for easier configuration.
   // Scenarios:
   // 1. Only OPENAI_API_KEY set: both keys have same value, OpenAI is used (client preference)
-  // 2. Only BUILT_IN_FORGE_API_KEY set: forgeApiKey has value, Forge is used
-  // 3. Both set: each has its own value, OpenAI is preferred (client preference)
+  // 2. Only BUILT_IN_FORGE_API_KEY set: forgeApiKey uses it, Forge is used
+  // 3. Both set: forgeApiKey uses BUILT_IN_FORGE_API_KEY, openaiApiKey uses OPENAI_API_KEY,
+  //    OpenAI is preferred (client preference)
   // See server/_core/llm.ts for LLM client preference logic.
   forgeApiKey: readEnvOrFile("BUILT_IN_FORGE_API_KEY") || readEnvOrFile("OPENAI_API_KEY"),
 
