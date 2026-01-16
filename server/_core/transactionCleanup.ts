@@ -9,7 +9,8 @@ const CLEANUP_SYSTEM_PROMPT = `You are a transaction data cleanup assistant. You
 4. Fix obvious OCR errors in descriptions
 
 Input: Array of transactions with fields: date, description, payee, debit, credit, balance
-Output: Same array structure with cleaned data. Remove invalid rows. Keep all valid transactions.
+Output: JSON object with a single "transactions" array containing cleaned data.
+Remove invalid rows. Keep all valid transactions.
 
 Rules:
 - Preserve original amounts exactly (do not modify debit/credit/balance values)
@@ -18,7 +19,7 @@ Rules:
 - Remove rows that are clearly not transactions (headers, totals, page numbers)
 - If unsure, keep the transaction
 
-Respond with valid JSON array only.`;
+Respond with a JSON object containing only the "transactions" array.`;
 
 export async function cleanTransactionsWithLLM(
   transactions: CanonicalTransaction[]
@@ -74,12 +75,30 @@ export async function cleanTransactionsWithLLM(
     }
 
     // Handle both array and object-wrapped responses
-    let cleanedTransactions: unknown[];
+    let cleanedTransactions: unknown[] | undefined;
     if (Array.isArray(parsed)) {
       cleanedTransactions = parsed;
-    } else if (parsed && typeof parsed === "object" && "transactions" in parsed) {
-      cleanedTransactions = (parsed as { transactions: unknown[] }).transactions;
-    } else {
+    } else if (parsed && typeof parsed === "object") {
+      const parsedObject = parsed as Record<string, unknown>;
+      if ("transactions" in parsedObject) {
+        if (Array.isArray(parsedObject.transactions)) {
+          cleanedTransactions = parsedObject.transactions;
+        } else {
+          console.error("[LLM] transactions field was not an array");
+        }
+      } else {
+        const arrayEntries = Object.entries(parsedObject).filter(([, value]) =>
+          Array.isArray(value)
+        );
+        if (arrayEntries.length === 1) {
+          const [key, value] = arrayEntries[0];
+          console.warn(`[LLM] Using array response from key "${key}"`);
+          cleanedTransactions = value as unknown[];
+        }
+      }
+    }
+
+    if (!cleanedTransactions) {
       console.error("[LLM] Unexpected response format from AI");
       return transactions;
     }
