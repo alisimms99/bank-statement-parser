@@ -50,10 +50,10 @@ export const ENV = {
 
   // Forge
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
-  forgeApiKey: readEnvOrFile("BUILT_IN_FORGE_API_KEY") || readEnvOrFile("OPENAI_API_KEY") || (process.env.BUILT_IN_FORGE_API_KEY ?? "") || (process.env.OPENAI_API_KEY ?? ""),
+  forgeApiKey: readEnvOrFile("BUILT_IN_FORGE_API_KEY") || readEnvOrFile("OPENAI_API_KEY"),
 
   // OpenAI
-  openaiApiKey: readEnvOrFile("OPENAI_API_KEY") || (process.env.OPENAI_API_KEY ?? ""),
+  openaiApiKey: readEnvOrFile("OPENAI_API_KEY"),
 
   // Server
   port: process.env.PORT ?? "",
