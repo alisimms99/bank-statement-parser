@@ -8,7 +8,7 @@ export const ENV = {
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
-  forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? process.env.OPENAI_API_KEY ?? "",
+  forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   gcpProjectId: process.env.GCP_PROJECT_ID ?? process.env.GOOGLE_PROJECT_ID ?? "",
   gcpLocation: process.env.GCP_LOCATION ?? process.env.DOCAI_LOCATION ?? "us",
   gcpBankProcessorId: process.env.GCP_BANK_PROCESSOR_ID ?? process.env.DOC_AI_BANK_PROCESSOR_ID ?? "",
