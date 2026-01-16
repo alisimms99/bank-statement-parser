@@ -40,8 +40,19 @@ export default function SheetsExport({ transactions, disabled }: SheetsExportPro
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Export failed");
+        const errorText = await response.text();
+        let errorMessage = "Export failed";
+
+        if (errorText) {
+          try {
+            const errorJson = JSON.parse(errorText) as { error?: string; message?: string };
+            errorMessage = errorJson.error || errorJson.message || errorMessage;
+          } catch {
+            errorMessage = errorText;
+          }
+        }
+
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
