@@ -32,7 +32,7 @@ const MASTER_SHEET_URL_KEY = 'masterSheetUrl';
 const buildSpreadsheetUrl = (spreadsheetId: string) =>
   `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
 
-export default function SheetsExport({ transactions }: SheetsExportProps) {
+export default function SheetsExport({ transactions, disabled }: SheetsExportProps) {
   const { user } = useAuth();
   const [selectedFolder, setSelectedFolder] = useState<SelectedFolder | null>(null);
   const [sheetName, setSheetName] = useState<string>("");
@@ -495,6 +495,7 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
         <Button
           onClick={handleExport}
           disabled={
+            disabled ||
             (exportMode === 'create' && (!selectedFolder || !sheetName.trim())) ||
             (exportMode === 'append' && (!masterSheetId.trim() || !sheetTabName.trim())) ||
             transactions.length === 0 ||
