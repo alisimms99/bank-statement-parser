@@ -36,33 +36,36 @@ export interface LegacyTransactionLike {
 }
 
 export function normalizeLegacyTransactions(legacy: LegacyTransactionLike[]): CanonicalTransaction[] {
-  return legacy
-    .map(item => {
-      const description = collapseWhitespace(item.description);
-      const payee = collapseWhitespace(item.payee ?? "") || description;
-      const amountParts = normalizeAmount(item.amount, item.directionHint);
-      const posted_date = normalizeDateString(item.date);
+  const results: CanonicalTransaction[] = [];
 
-      if (!amountParts || (!amountParts.debit && !amountParts.credit)) return null;
+  for (const item of legacy) {
+    const description = collapseWhitespace(item.description);
+    const payeeText = collapseWhitespace(item.payee ?? "");
+    const payee: string | null = payeeText || description || null;
+    const amountParts = normalizeAmount(item.amount, item.directionHint);
+    const posted_date = normalizeDateString(item.date);
 
-      return {
-        date: posted_date,
-        posted_date,
-        description,
-        payee,
-        debit: amountParts.debit,
-        credit: amountParts.credit,
-        balance: normalizeNumber(item.balance),
-        account_id: item.account_id ?? null,
-        source_bank: item.source_bank ?? null,
-        statement_period: {
-          start: normalizeDateString(item.statement_period?.start ?? null),
-          end: normalizeDateString(item.statement_period?.end ?? null)
-        },
-        metadata: { raw_type: item.type ?? null }
-      } satisfies CanonicalTransaction;
-    })
-    .filter((t): t is CanonicalTransaction => Boolean(t));
+    if (!amountParts || (!amountParts.debit && !amountParts.credit)) continue;
+
+    results.push({
+      date: posted_date,
+      posted_date,
+      description,
+      payee,
+      debit: amountParts.debit,
+      credit: amountParts.credit,
+      balance: normalizeNumber(item.balance),
+      account_id: item.account_id ?? null,
+      source_bank: item.source_bank ?? null,
+      statement_period: {
+        start: normalizeDateString(item.statement_period?.start ?? null),
+        end: normalizeDateString(item.statement_period?.end ?? null)
+      },
+      metadata: { raw_type: item.type ?? null }
+    });
+  }
+
+  return results;
 }
 
 export function normalizeDocumentAITransactions(

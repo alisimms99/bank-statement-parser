@@ -89,4 +89,77 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// Account and import log functions for Google Sheets export
+export interface Account {
+  id: number;
+  userId: number;
+  name: string;
+  type: string;
+  spreadsheetId?: string;
+  createdAt: Date;
+}
+
+export interface ImportLog {
+  id: number;
+  accountId: number;
+  userId: number;
+  transactionCount: number;
+  periodStart?: string;
+  periodEnd?: string;
+  fileHash?: string;
+  createdAt: Date;
+}
+
+// In-memory stores for development (in production, use DB tables)
+const accountsStore = new Map<number, Account[]>();
+const importLogsStore = new Map<string, ImportLog[]>();
+
+export async function getAccounts(userId: number): Promise<Account[]> {
+  const db = await getDb();
+  if (!db) {
+    // Return in-memory accounts for development
+    return accountsStore.get(userId) || [];
+  }
+  // TODO: Query from database when accounts table is added
+  return accountsStore.get(userId) || [];
+}
+
+export async function createAccount(userId: number, account: Omit<Account, "id" | "userId" | "createdAt">): Promise<Account> {
+  const accounts = accountsStore.get(userId) || [];
+  const newAccount: Account = {
+    ...account,
+    id: Date.now(),
+    userId,
+    createdAt: new Date(),
+  };
+  accounts.push(newAccount);
+  accountsStore.set(userId, accounts);
+  return newAccount;
+}
+
+export async function checkImportExists(
+  accountId: number,
+  fileHash: string
+): Promise<boolean> {
+  const key = `${accountId}`;
+  const logs = importLogsStore.get(key) || [];
+  return logs.some(log => log.fileHash === fileHash);
+}
+
+export async function storeImportLog(log: Omit<ImportLog, "id" | "createdAt">): Promise<ImportLog> {
+  const key = `${log.accountId}`;
+  const logs = importLogsStore.get(key) || [];
+  const newLog: ImportLog = {
+    ...log,
+    id: Date.now(),
+    createdAt: new Date(),
+  };
+  logs.push(newLog);
+  importLogsStore.set(key, logs);
+  return newLog;
+}
+
+export async function getImportLogs(accountId: number): Promise<ImportLog[]> {
+  const key = `${accountId}`;
+  return importLogsStore.get(key) || [];
+}

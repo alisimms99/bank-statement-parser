@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import FileUpload from "@/components/FileUpload";
 import TransactionTable from "@/components/TransactionTable";
+import SheetsExport from "@/components/SheetsExport";
 import DebugPanel, { type IngestionDebugData } from "@/components/ingestion/DebugPanel";
 import type { FileStatus } from "@/components/ingestion/StepFlow";
 import {
@@ -20,8 +21,7 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 // Check if debug view is enabled via environment variable
-// Supports both VITE_DEBUG_VIEW (Vite convention) and DEBUG_VIEW (as specified in requirements)
-const DEBUG_VIEW = import.meta.env.VITE_DEBUG_VIEW === "true" || import.meta.env.VITE_DEBUG_VIEW === true;
+const DEBUG_VIEW = import.meta.env.VITE_DEBUG_VIEW === "true";
 
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -282,6 +282,12 @@ export default function Home() {
                     />
                   </div>
                 </div>
+
+                {/* Google Sheets Export */}
+                <SheetsExport
+                  transactions={normalizedTransactions}
+                  disabled={isProcessing}
+                />
 
                 {/* Transaction table */}
                 <TransactionTable transactions={transactions} />
