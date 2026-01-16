@@ -103,6 +103,24 @@ export const ENV = {
 
   // Google Sheets
   googleSheetsMasterId: readEnvOrFile("GOOGLE_SHEETS_MASTER_ID"),
+
+  // Aliases for getDocumentAiConfig compatibility
+  docAiBankProcessorId:
+    process.env.DOC_AI_BANK_PROCESSOR_ID ??
+    process.env.GCP_BANK_PROCESSOR_ID ??
+    readEnvOrFile("DOCAI_PROCESSOR_ID"),
+  docAiInvoiceProcessorId:
+    process.env.DOC_AI_INVOICE_PROCESSOR_ID ??
+    process.env.GCP_INVOICE_PROCESSOR_ID ??
+    readEnvOrFile("DOCAI_PROCESSOR_ID"),
+  docAiOcrProcessorId:
+    process.env.DOC_AI_OCR_PROCESSOR_ID ??
+    process.env.GCP_OCR_PROCESSOR_ID ??
+    readEnvOrFile("DOCAI_PROCESSOR_ID"),
+  docAiFormProcessorId:
+    process.env.DOC_AI_FORM_PROCESSOR_ID ??
+    process.env.GCP_FORM_PROCESSOR_ID ??
+    readEnvOrFile("DOCAI_PROCESSOR_ID"),
 };
 
 // Debug logging for Document AI configuration (remove after debugging)
