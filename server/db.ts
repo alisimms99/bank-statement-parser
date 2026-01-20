@@ -168,4 +168,3 @@ export async function storeImportLog(log: InsertImportLog): Promise<void> {
   if (!db) return;
   await db.insert(importLog).values(log);
 }
-}
