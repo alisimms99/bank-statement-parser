@@ -1280,6 +1280,10 @@ export function registerExportRoutes(app: Express): void {
         success: true,
         spreadsheetId,
         sheetUrl,
+        // Use consistent field names that client expects
+        rowsAdded: appendedCount,
+        rowsSkipped: skippedDuplicateCount,
+        // Keep legacy field names for backwards compatibility
         appendedCount,
         skippedDuplicateCount,
       });

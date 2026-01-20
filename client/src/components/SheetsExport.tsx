@@ -259,7 +259,8 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.message || "Failed to export to Google Sheets");
+        // Server may return { error: "..." } or { message: "..." }
+        throw new Error(error.error || error.message || "Failed to export to Google Sheets");
       }
 
       const result = await response.json();

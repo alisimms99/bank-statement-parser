@@ -18,7 +18,8 @@ Rules:
 - Remove rows that are clearly not transactions (headers, totals, page numbers)
 - If unsure, keep the transaction
 
-Respond with valid JSON array only.`;
+Respond with a JSON object containing a "transactions" key with the array of cleaned transactions.
+Example: {"transactions": [...]}`;
 
 export async function cleanTransactionsWithLLM(
   transactions: CanonicalTransaction[]
@@ -74,11 +75,36 @@ export async function cleanTransactionsWithLLM(
     }
 
     // Handle both array and object-wrapped responses
+    // LLMs may use different key names for the array
     let cleanedTransactions: unknown[];
     if (Array.isArray(parsed)) {
       cleanedTransactions = parsed;
-    } else if (parsed && typeof parsed === "object" && "transactions" in parsed) {
-      cleanedTransactions = (parsed as { transactions: unknown[] }).transactions;
+    } else if (parsed && typeof parsed === "object") {
+      // Try common key names that LLMs might use
+      const obj = parsed as Record<string, unknown>;
+      const possibleKeys = ["transactions", "data", "result", "results", "items", "records"];
+      let foundArray: unknown[] | null = null;
+
+      for (const key of possibleKeys) {
+        if (key in obj && Array.isArray(obj[key])) {
+          foundArray = obj[key] as unknown[];
+          break;
+        }
+      }
+
+      if (foundArray) {
+        cleanedTransactions = foundArray;
+      } else {
+        // Last resort: check if any value is an array
+        const values = Object.values(obj);
+        const arrayValue = values.find(v => Array.isArray(v));
+        if (arrayValue) {
+          cleanedTransactions = arrayValue as unknown[];
+        } else {
+          console.error("[LLM] Unexpected response format from AI - no array found in response");
+          return transactions;
+        }
+      }
     } else {
       console.error("[LLM] Unexpected response format from AI");
       return transactions;
