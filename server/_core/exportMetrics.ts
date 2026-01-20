@@ -47,4 +47,3 @@ export function getExportMetricsSummary() {
     recent: exportMetrics.slice(-20),
   };
 }
-

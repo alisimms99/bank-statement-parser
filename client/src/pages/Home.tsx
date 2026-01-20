@@ -585,11 +585,14 @@ export default function Home() {
                   </div>
                 </div>
 
+                {/* Google Sheets Export */}
+                <SheetsExport
+                  transactions={normalizedTransactions}
+                  disabled={isProcessing}
+                />
+
                 {/* Transaction table */}
                 <TransactionTable transactions={transactions} />
-
-                {/* Google Sheets Export */}
-                <SheetsExport transactions={normalizedTransactions} />
               </div>
             )}
 

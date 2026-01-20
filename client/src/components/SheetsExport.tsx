@@ -16,6 +16,7 @@ import { toast } from "sonner";
 
 interface SheetsExportProps {
   transactions: CanonicalTransaction[];
+  disabled?: boolean;
 }
 
 interface SelectedFolder {
@@ -560,4 +561,3 @@ export default function SheetsExport({ transactions }: SheetsExportProps) {
     </div>
   );
 }
-

@@ -257,4 +257,3 @@ export async function createSessionToken(payload: SessionPayload & { accessToken
     .setIssuedAt(Math.floor(issuedAt / 1000))
     .sign(secretKey);
 }
-

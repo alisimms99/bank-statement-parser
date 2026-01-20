@@ -72,4 +72,3 @@ export function useAuth(options?: { redirectOnUnauthenticated?: boolean }) {
     refresh: () => queryClient.invalidateQueries({ queryKey: ["auth", "me"] }),
   } satisfies AuthState & { logout: () => void; refresh: () => void };
 }
-
