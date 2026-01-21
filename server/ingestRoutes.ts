@@ -2,7 +2,7 @@ import type { Express, Request } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { randomUUID } from "crypto";
-import { processWithDocumentAI, processWithDocumentAIStructured } from "./_core/documentAIClient";
+import { processWithDocumentAIStructured } from "./_core/documentAIClient";
 import { getDocumentAiConfig } from "./_core/env";
 import type { CanonicalDocument, CanonicalTransaction } from "@shared/transactions";
 import type { DocumentAiTelemetry, IngestionFailure } from "@shared/types";
